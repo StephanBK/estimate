@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Materials List</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #FFFFFF;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1 {
+            color: #008080;  /* Teal header */
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #1E1E1E;
+        }
+        th, td {
+            padding: 12px;
+            text-align: center;
+            border: 1px solid #333;
+        }
+        th {
+            background-color: #008080;  /* Teal for table headers */
+            color: #121212;
+        }
+        tr:hover {
+            background-color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>Materials List</h1>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Category</th>
+            <th>Nickname</th>
+            <th>Status</th>
+            <th>Description</th>
+            <th>Cost</th>
+            <th>Cost Unit</th>
+            <th>In Inventory</th>
+        </tr>
+        {% for material in materials %}
+        <tr>
+            <td>{{ material.id }}</td>
+            <td>{{ material.category }}</td>
+            <td>{{ material.nickname }}</td>
+            <td>{{ 'Yes' if material.status else 'No' }}</td>
+            <td>{{ material.description }}</td>
+            <td>${{ material.cost }}</td>
+            <td>{{ material.cost_unit }}</td>
+            <td>{{ 'Yes' if material.in_inventory else 'No' }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
