@@ -1,0 +1,28 @@
+﻿Item,Type,VGA Width in,VGA Height in,Qty,Glazing Type
+S Bldg Lvl 1-8 Typ,SWR,44,78,1184,GL1
+S Bldg Lvl 1-2 Large,SWR,88,92,60,GL2
+S Bldg Ctyd Lvl 1-8 Sidelites,SWR,62,78,64,GL1
+S Bldg Ctyd Bsmt Lvl Typ,SWR,102,64,48,GL2
+S Bldg Ctyd Grnd Lvl Typ,SWR,102,91,46,GL2
+S Bldg Ctyd Bsmt Lvl Sidelites,SWR,74.5,64,8,GL2
+S Bldg Ctyd Grnd Lvl Sidelites,SWR,74.5,91,8,GL2
+S Bldg Ctyd Grnd Lvl Café,SWR,66,91,2,GL2
+Escalator Lobby S1a (bottom),SWR,94.125,99,6,GL2
+Escalator Lobby S1b (top),SWR,94.125,71.75,6,GL2
+Escalator Lobby S2,SWR,63.75,99,8,GL2
+Escalator Lobby S3 Triangles,SWR,70,70,4,GL2
+S to N Bldg Lobby Lvl 1,SWR,94,100.5,14,GL2
+N Bldg Lvl 1 Lobby S1,SWR,89,100.5,5,GL2
+N Bldg Lvl 1 Lobby S2,SWR,78,100.5,2,GL2
+N Bldg Lvl 1 Lobby S3,SWR,106,100.5,8,GL2
+N Bldg Lvl 1 Lobby S4,SWR,82.5,100.5,3,GL2
+N Bldg Lvl 1 Lobby S5,SWR,76,100.5,1,GL2
+N Bldg Lvl 4-7 Typ,SWR,44,78,1264,GL1
+S to N Bldg Crosswalk S1,SWR,58.75,102.5,20,GL2
+S to N Bldg Crosswalk S2,SWR,45,102.5,8,GL2
+S to N Bldg Crosswalk S3,SWR,58.75,102.5,60,GL2
+W Bldg Lvl 1 Typ,SWR,95.5,92,19,GL2
+W Bldg Lvl 2 Café Typ,SWR,84.7,99.5,68,GL2
+W Bldg Lvl 2 Café Overlap,SWR,117,69.5,50,GL2
+W Bldg Lvl 2 Café Overlap Special,SWR,117,69.5,20,GL2
+W Bldg Lvl 2 Café Overlap Sidelites,SWR,66,69.5,8,GL2
