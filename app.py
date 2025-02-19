@@ -6,7 +6,7 @@ import io
 
 app = Flask(__name__)
 
-# Database Configuration
+# Database Configuration (update with your actual connection string)
 app.config[
     'SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -64,9 +64,9 @@ common_css = """
 """
 
 
-# -------------------------
-# INDEX & SUMMARY PAGES
-# -------------------------
+# =========================
+# INDEX PAGE
+# =========================
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
@@ -95,7 +95,7 @@ def index():
                <input type="text" id="project_name" name="project_name" required>
                <label for="project_number">Project Number:</label>
                <input type="text" id="project_number" name="project_number" required>
-               <label for="file">Upload Filled Template:</label>
+               <label for="file">Upload Filled Template (CSV):</label>
                <input type="file" id="file" name="file" accept=".csv" required>
                <button type="submit">Submit</button>
             </form>
@@ -111,16 +111,17 @@ def download_template():
     return send_file(TEMPLATE_PATH, as_attachment=True)
 
 
+# =========================
+# SUMMARY PAGE (Unchanged)
+# =========================
 @app.route('/summary')
 def summary():
-    # Read CSV and compute basic metrics
     file_path = current_project.get('file_path')
     try:
         df = pd.read_csv(file_path)
     except Exception as e:
         return f"<h2 style='color: red;'>Error reading the file: {e}</h2>"
 
-    # Separate by Type column if present; otherwise assume all SWR
     if "Type" in df.columns:
         df_swr = df[df["Type"].str.upper() == "SWR"]
         df_igr = df[df["Type"].str.upper() == "IGR"]
@@ -168,7 +169,6 @@ def summary():
         df_subset["Total Horizontal (ft)"] = (df_subset["VGA Width in"] * df_subset["Qty"]) / 12
         return df_subset
 
-    # Add new columns and sort by Qty descending
     df_swr_calc = add_calculation_columns(df_swr).sort_values(by="Qty", ascending=False)
     if not df_igr.empty:
         df_igr_calc = add_calculation_columns(df_igr).sort_values(by="Qty", ascending=False)
@@ -222,9 +222,9 @@ def summary():
     return summary_html
 
 
-# -------------------------
-# MATERIALS PAGE (SWR Materials Only)
-# -------------------------
+# =========================
+# MATERIALS PAGE (SWR Materials Only) with Head Retainers Added
+# =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
     try:
@@ -237,6 +237,8 @@ def materials():
         materials_foam_baffle = Material.query.filter_by(category=6).all()
         materials_glass_protection = Material.query.filter_by(category=7).all()
         materials_tape = Material.query.filter_by(category=10).all()
+        # New: Head Retainers from Category 17
+        materials_head_retainers = Material.query.filter_by(category=17).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
@@ -252,6 +254,7 @@ def materials():
         selected_glass_protection = request.form.get('material_glass_protection')
         selected_tape = request.form.get('material_tape')
         tape_option = request.form.get('tape_option')
+        selected_head_retainers = request.form.get('material_head_retainers')
 
         mat_glass = Material.query.get(selected_glass) if selected_glass else None
         mat_aluminum = Material.query.get(selected_aluminum) if selected_aluminum else None
@@ -262,6 +265,7 @@ def materials():
         mat_foam_baffle = Material.query.get(selected_foam_baffle) if selected_foam_baffle else None
         mat_glass_protection = Material.query.get(selected_glass_protection) if selected_glass_protection else None
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
+        mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
 
         total_area = current_project.get('swr_total_area', 0)
         total_perimeter = current_project.get('swr_total_perimeter', 0)
@@ -292,10 +296,12 @@ def materials():
                 cost_tape = (total_horizontal * mat_tape.cost)
         else:
             cost_tape = 0
+        # New: Head Retainers cost: half of total horizontal (ft) × unit price
+        cost_head_retainers = ((total_horizontal / 2) * mat_head_retainers.cost) if mat_head_retainers else 0
 
         total_material_cost = (cost_glass + cost_aluminum + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle +
-                               cost_glass_protection + cost_tape)
+                               cost_glass_protection + cost_tape + cost_head_retainers)
         current_project['material_total_cost'] = total_material_cost
 
         result_html = f"""
@@ -386,6 +392,13 @@ def materials():
                    <td>{cost_tape:.2f}</td>
                  </tr>
                  <tr>
+                   <td>Head Retainers (Cat 17)</td>
+                   <td>{mat_head_retainers.nickname if mat_head_retainers else "N/A"}</td>
+                   <td>{mat_head_retainers.cost if mat_head_retainers else 0:.2f}</td>
+                   <td>0.5 × Total Horizontal (ft) × Cost</td>
+                   <td>{cost_head_retainers:.2f}</td>
+                 </tr>
+                 <tr>
                    <th colspan="4">SWR Material Total Cost</th>
                    <th>{total_material_cost:.2f}</th>
                  </tr>
@@ -413,6 +426,7 @@ def materials():
     options_foam_baffle = generate_options(materials_foam_baffle)
     options_glass_protection = generate_options(materials_glass_protection)
     options_tape = generate_options(materials_tape)
+    options_head_retainers = generate_options(materials_head_retainers)
 
     return f"""
     <html>
@@ -429,7 +443,6 @@ def materials():
                   {options_glass}
                </select>
 
-               <!-- Aluminum: option appears above its picker -->
                <label for="aluminum_option">Aluminum Option:</label>
                <select name="aluminum_option" id="aluminum_option" required>
                   <option value="head_retainer">Head Retainer (Total Perimeter + 0.5 × Total Horizontal)</option>
@@ -480,6 +493,11 @@ def materials():
                   {options_tape}
                </select>
 
+               <label for="material_head_retainers">Head Retainers (Cat 17 - 0.5 × Total Horizontal (ft) × Cost):</label>
+               <select name="material_head_retainers" id="material_head_retainers" required>
+                  {options_head_retainers}
+               </select>
+
                <button type="submit">Calculate SWR Material Costs</button>
             </form>
             <button onclick="window.location.href='/summary'">Back to Summary</button>
@@ -489,12 +507,11 @@ def materials():
     """
 
 
-# -------------------------
-# OTHER COSTS PAGE
-# -------------------------
+# =========================
+# OTHER COSTS PAGE (Unchanged)
+# =========================
 @app.route('/other_costs', methods=['GET', 'POST'])
 def other_costs():
-    # Capture additional costs: Logistics, Installation, Equipment, Travel, Sales.
     material_cost = current_project.get('material_total_cost', 0)
     total_quantity = current_project.get('total_quantity', 0)
     if request.method == 'POST':
@@ -645,9 +662,9 @@ def other_costs():
     """
 
 
-# -------------------------
-# MARGINS PAGE
-# -------------------------
+# =========================
+# MARGINS PAGE (Unchanged)
+# =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
     base_costs = {
@@ -757,9 +774,9 @@ def margins():
     return form_html
 
 
-# -------------------------
-# DOWNLOAD FINAL SUMMARY
-# -------------------------
+# =========================
+# DOWNLOAD FINAL SUMMARY CSV (Single Endpoint)
+# =========================
 @app.route('/download_final_summary', methods=['POST'])
 def download_final_summary():
     csv_data = request.form.get('csv_data', '')
