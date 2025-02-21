@@ -3,6 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
 import os
 import io
+import csv
+import datetime
 
 app = Flask(__name__)
 
@@ -152,28 +154,11 @@ def summary():
     current_project['swr_total_vertical_ft'] = swr_vertical
     current_project['swr_total_horizontal_ft'] = swr_horizontal
     current_project['swr_total_quantity'] = swr_quantity
-
     current_project['igr_total_area'] = igr_area
     current_project['igr_total_perimeter'] = igr_perimeter
     current_project['igr_total_vertical_ft'] = igr_vertical
     current_project['igr_total_horizontal_ft'] = igr_horizontal
     current_project['igr_total_quantity'] = igr_quantity
-
-    def add_calculation_columns(df_subset):
-        df_subset = df_subset.copy()
-        df_subset["Square Footage (sq ft)"] = (df_subset["VGA Width in"] * df_subset["VGA Height in"] * df_subset[
-            "Qty"]) / 144
-        df_subset["Total Perimeter (ft)"] = (2 * (df_subset["VGA Width in"] + df_subset["VGA Height in"]) * df_subset[
-            "Qty"]) / 12
-        df_subset["Total Vertical (ft)"] = (df_subset["VGA Height in"] * df_subset["Qty"]) / 12
-        df_subset["Total Horizontal (ft)"] = (df_subset["VGA Width in"] * df_subset["Qty"]) / 12
-        return df_subset
-
-    df_swr_calc = add_calculation_columns(df_swr).sort_values(by="Qty", ascending=False)
-    if not df_igr.empty:
-        df_igr_calc = add_calculation_columns(df_igr).sort_values(by="Qty", ascending=False)
-    else:
-        df_igr_calc = pd.DataFrame()
 
     summary_html = f"""
     <html>
@@ -204,15 +189,6 @@ def summary():
               <tr><td>Total Vertical (ft)</td><td>{igr_vertical:.2f}</td></tr>
               <tr><td>Total Horizontal (ft)</td><td>{igr_horizontal:.2f}</td></tr>
             </table>
-            <h3>Detailed SWR Items</h3>
-            {df_swr_calc.to_html(classes='data-table', index=False, float_format="%.2f")}
-    """
-    if not df_igr_calc.empty:
-        summary_html += f"""
-            <h3>Detailed IGR Items</h3>
-            {df_igr_calc.to_html(classes='data-table', index=False, float_format="%.2f")}
-        """
-    summary_html += f"""
             <button onclick="window.location.href='/'">Start New Project</button>
             <button onclick="window.location.href='/materials'">Next: SWR Materials</button>
          </div>
@@ -223,7 +199,7 @@ def summary():
 
 
 # =========================
-# MATERIALS PAGE (SWR Materials Only) with Yield Integration
+# MATERIALS PAGE (SWR Materials with Yield Integration)
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
@@ -237,10 +213,14 @@ def materials():
         materials_foam_baffle = Material.query.filter_by(category=6).all()
         materials_glass_protection = Material.query.filter_by(category=7).all()
         materials_tape = Material.query.filter_by(category=10).all()
-        # New: Head Retainers from Category 17
         materials_head_retainers = Material.query.filter_by(category=17).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
+
+    # Define yield factors for both GET and POST
+    yield_glass = 0.97  # Category 15
+    yield_aluminum = 0.75  # Category 1
+    yield_standard = 0.91  # All others
 
     if request.method == 'POST':
         selected_glass = request.form.get('material_glass')
@@ -272,11 +252,6 @@ def materials():
         total_vertical = current_project.get('swr_total_vertical_ft', 0)
         total_horizontal = current_project.get('swr_total_horizontal_ft', 0)
         total_quantity = current_project.get('swr_total_quantity', 0)
-
-        # Define yield factors:
-        yield_standard = 0.91
-        yield_aluminum = 0.75
-        yield_glass = 0.97
 
         cost_glass = (total_area * mat_glass.cost) / yield_glass if mat_glass else 0
         if mat_aluminum:
@@ -310,7 +285,93 @@ def materials():
                                cost_glass_protection + cost_tape + cost_head_retainers)
         current_project['material_total_cost'] = total_material_cost
 
-        result_html = f"""
+        # Instead of a complex list, we now simply use the cost summary displayed on screen
+        # For example, we build a list of dictionaries from the breakdown we display:
+        materials_list = [
+            {
+                "Category": "Glass (Cat 15)",
+                "Selected Material": mat_glass.nickname if mat_glass else "N/A",
+                "Unit Cost": mat_glass.cost if mat_glass else 0,
+                "Calculation": f"Total Area {total_area:.2f} × Cost / 0.97",
+                "Cost ($)": cost_glass
+            },
+            {
+                "Category": "Aluminum (Cat 1)",
+                "Selected Material": mat_aluminum.nickname if mat_aluminum else "N/A",
+                "Unit Cost": mat_aluminum.cost if mat_aluminum else 0,
+                "Calculation": f"Option: {aluminum_option} - " + (
+                    "(Perimeter + 0.5×Horizontal)" if aluminum_option == "head_retainer" else "(Perimeter + Horizontal)") + " × Cost / 0.75",
+                "Cost ($)": cost_aluminum
+            },
+            {
+                "Category": "Glazing Spline (Cat 2)",
+                "Selected Material": mat_glazing.nickname if mat_glazing else "N/A",
+                "Unit Cost": mat_glazing.cost if mat_glazing else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / 0.91",
+                "Cost ($)": cost_glazing
+            },
+            {
+                "Category": "Gaskets (Cat 3)",
+                "Selected Material": mat_gaskets.nickname if mat_gaskets else "N/A",
+                "Unit Cost": mat_gaskets.cost if mat_gaskets else 0,
+                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / 0.91",
+                "Cost ($)": cost_gaskets
+            },
+            {
+                "Category": "Corner Keys (Cat 4)",
+                "Selected Material": mat_corner_keys.nickname if mat_corner_keys else "N/A",
+                "Unit Cost": mat_corner_keys.cost if mat_corner_keys else 0,
+                "Calculation": f"Total Quantity {total_quantity:.2f} × 4 × Cost / 0.91",
+                "Cost ($)": cost_corner_keys
+            },
+            {
+                "Category": "Dual Lock (Cat 5)",
+                "Selected Material": mat_dual_lock.nickname if mat_dual_lock else "N/A",
+                "Unit Cost": mat_dual_lock.cost if mat_dual_lock else 0,
+                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / 0.91",
+                "Cost ($)": cost_dual_lock
+            },
+            {
+                "Category": "Foam Baffle (Cat 6)",
+                "Selected Material": mat_foam_baffle.nickname if mat_foam_baffle else "N/A",
+                "Unit Cost": mat_foam_baffle.cost if mat_foam_baffle else 0,
+                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / 0.91",
+                "Cost ($)": cost_foam_baffle
+            },
+            {
+                "Category": "Glass Protection (Cat 7)",
+                "Selected Material": mat_glass_protection.nickname if mat_glass_protection else "N/A",
+                "Unit Cost": mat_glass_protection.cost if mat_glass_protection else 0,
+                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / 0.91",
+                "Cost ($)": cost_glass_protection
+            },
+            {
+                "Category": "Tape (Cat 10)",
+                "Selected Material": mat_tape.nickname if mat_tape else "N/A",
+                "Unit Cost": mat_tape.cost if mat_tape else 0,
+                "Calculation": f"Option: {tape_option} - " + (
+                    "(Half Horizontal)" if tape_option == "head_retainer" else "(Full Horizontal)") + f" × Total Horizontal {total_horizontal:.2f} × Cost / 0.91",
+                "Cost ($)": cost_tape
+            },
+            {
+                "Category": "Head Retainers (Cat 17)",
+                "Selected Material": mat_head_retainers.nickname if mat_head_retainers else "N/A",
+                "Unit Cost": mat_head_retainers.cost if mat_head_retainers else 0,
+                "Calculation": "0.5 × Total Horizontal × Cost / 0.91",
+                "Cost ($)": cost_head_retainers
+            }
+        ]
+        current_project["itemized_costs"] = materials_list
+
+        # Build an HTML table for display
+        table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th></tr>"
+        for item in materials_list:
+            table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td></tr>"
+        table_html += "</table>"
+
+        current_project["materials_breakdown"] = table_html
+
+        return f"""
          <html>
            <head>
              <title>SWR Material Cost Summary</title>
@@ -319,102 +380,13 @@ def materials():
            <body>
              <div class="container">
                <h2>SWR Material Cost Summary</h2>
-               <table class="summary-table">
-                 <tr>
-                   <th>Category</th>
-                   <th>Selected Material</th>
-                   <th>Unit Cost</th>
-                   <th>Calculation</th>
-                   <th>Cost ($)</th>
-                 </tr>
-                 <tr>
-                   <td>Glass (Cat 15)</td>
-                   <td>{mat_glass.nickname if mat_glass else "N/A"}</td>
-                   <td>{mat_glass.cost if mat_glass else 0:.2f}</td>
-                   <td>Total Area (sq ft): {total_area:.2f} × Cost / 0.97</td>
-                   <td>{cost_glass:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Aluminum (Cat 1)</td>
-                   <td>{mat_aluminum.nickname if mat_aluminum else "N/A"}</td>
-                   <td>{mat_aluminum.cost if mat_aluminum else 0:.2f}</td>
-                   <td>
-                     Option: {aluminum_option}<br>
-                     {"(Perimeter + 0.5×Horizontal)" if aluminum_option == "head_retainer" else "(Perimeter + Horizontal)"} × Cost / 0.75
-                   </td>
-                   <td>{cost_aluminum:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Glazing Spline (Cat 2)</td>
-                   <td>{mat_glazing.nickname if mat_glazing else "N/A"}</td>
-                   <td>{mat_glazing.cost if mat_glazing else 0:.2f}</td>
-                   <td>Total Perimeter (ft): {total_perimeter:.2f} × Cost / 0.91</td>
-                   <td>{cost_glazing:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Gaskets (Cat 3)</td>
-                   <td>{mat_gaskets.nickname if mat_gaskets else "N/A"}</td>
-                   <td>{mat_gaskets.cost if mat_gaskets else 0:.2f}</td>
-                   <td>Total Vertical (ft): {total_vertical:.2f} × Cost / 0.91</td>
-                   <td>{cost_gaskets:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Corner Keys (Cat 4)</td>
-                   <td>{mat_corner_keys.nickname if mat_corner_keys else "N/A"}</td>
-                   <td>{mat_corner_keys.cost if mat_corner_keys else 0:.2f}</td>
-                   <td>Total Quantity: {total_quantity:.2f} × 4 × Cost / 0.91</td>
-                   <td>{cost_corner_keys:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Dual Lock (Cat 5)</td>
-                   <td>{mat_dual_lock.nickname if mat_dual_lock else "N/A"}</td>
-                   <td>{mat_dual_lock.cost if mat_dual_lock else 0:.2f}</td>
-                   <td>Total Vertical (ft): {total_vertical:.2f} × Cost / 0.91</td>
-                   <td>{cost_dual_lock:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Foam Baffle (Cat 6)</td>
-                   <td>{mat_foam_baffle.nickname if mat_foam_baffle else "N/A"}</td>
-                   <td>{mat_foam_baffle.cost if mat_foam_baffle else 0:.2f}</td>
-                   <td>Total Horizontal (ft): {total_horizontal:.2f} × Cost / 0.91</td>
-                   <td>{cost_foam_baffle:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Glass Protection (Cat 7)</td>
-                   <td>{mat_glass_protection.nickname if mat_glass_protection else "N/A"}</td>
-                   <td>{mat_glass_protection.cost if mat_glass_protection else 0:.2f}</td>
-                   <td>Total Horizontal (ft): {total_horizontal:.2f} × Cost / 0.91</td>
-                   <td>{cost_glass_protection:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Tape (Cat 10)</td>
-                   <td>{mat_tape.nickname if mat_tape else "N/A"}</td>
-                   <td>{mat_tape.cost if mat_tape else 0:.2f}</td>
-                   <td>
-                     Option: {tape_option}<br>
-                     {"(Half Horizontal)" if tape_option == "head_retainer" else "(Full Horizontal)"} × Total Horizontal (ft): {total_horizontal:.2f} × Cost / 0.91
-                   </td>
-                   <td>{cost_tape:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Head Retainers (Cat 17)</td>
-                   <td>{mat_head_retainers.nickname if mat_head_retainers else "N/A"}</td>
-                   <td>{mat_head_retainers.cost if mat_head_retainers else 0:.2f}</td>
-                   <td>0.5 × Total Horizontal (ft) × Cost / 0.91</td>
-                   <td>{cost_head_retainers:.2f}</td>
-                 </tr>
-                 <tr>
-                   <th colspan="4">SWR Material Total Cost</th>
-                   <th>{total_material_cost:.2f}</th>
-                 </tr>
-               </table>
-               <button onclick="window.location.href='/other_costs'">Other Costs</button>
+               {table_html}
+               <button onclick="window.location.href='/other_costs'">Next: Enter Other Costs</button>
                <button onclick="window.location.href='/'">Start New Project</button>
              </div>
            </body>
          </html>
         """
-        return result_html
 
     def generate_options(materials_list):
         options = ""
@@ -701,6 +673,16 @@ def margins():
         df_summary.to_csv(csv_buffer, index=False)
         csv_output = csv_buffer.getvalue()
 
+        current_project["final_summary"] = []
+        for cat in base_costs:
+            current_project["final_summary"].append({
+                "Category": cat,
+                "Original Cost ($)": base_costs[cat],
+                "Margin (%)": margins.get(cat, 0),
+                "Cost with Margin ($)": adjusted_costs[cat]
+            })
+        current_project["grand_total"] = final_total
+
         result_html = f"""
          <html>
            <head>
@@ -780,16 +762,171 @@ def margins():
 
 
 # =========================
-# DOWNLOAD FINAL SUMMARY CSV (Single Endpoint)
+# DOWNLOAD FINAL SUMMARY CSV (Detailed Final Export)
 # =========================
 @app.route('/download_final_summary', methods=['POST'])
 def download_final_summary():
-    csv_data = request.form.get('csv_data', '')
+    csv_data = create_final_summary_csv()
     return Response(
         csv_data,
         mimetype="text/csv",
         headers={"Content-disposition": "attachment; filename=final_cost_summary.csv"}
     )
+
+
+def create_final_summary_csv():
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Top header: Only display Project Name, Project Number, and Current Date.
+    project_name = current_project.get("project_name", "Unnamed Project")
+    project_number = current_project.get("project_number", "")
+    current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+    writer.writerow(["Project Name:", project_name])
+    writer.writerow(["Project Number:", project_number])
+    writer.writerow(["Date:", current_date])
+    writer.writerow([])
+
+    # Combined Totals
+    swr_panels = current_project.get("swr_total_quantity", 0)
+    swr_area = current_project.get("swr_total_area", 0)
+    swr_perimeter = current_project.get("swr_total_perimeter", 0)
+    swr_horizontal = current_project.get("swr_total_horizontal_ft", 0)
+    swr_vertical = current_project.get("swr_total_vertical_ft", 0)
+    igr_panels = current_project.get("igr_total_quantity", 0)
+    igr_area = current_project.get("igr_total_area", 0)
+    igr_perimeter = current_project.get("igr_total_perimeter", 0)
+    igr_horizontal = current_project.get("igr_total_horizontal_ft", 0)
+    igr_vertical = current_project.get("igr_total_vertical_ft", 0)
+    combined_panels = swr_panels + igr_panels
+    combined_area = swr_area + igr_area
+    combined_perimeter = swr_perimeter + igr_perimeter
+    combined_horizontal = swr_horizontal + igr_horizontal
+    combined_vertical = swr_vertical + igr_vertical
+
+    writer.writerow(["Combined Totals"])
+    writer.writerow(["Panels", "Area (sq ft)", "Perimeter (ft)", "Horizontal (ft)", "Vertical (ft)"])
+    writer.writerow([combined_panels, combined_area, combined_perimeter, combined_horizontal, combined_vertical])
+    writer.writerow([])
+
+    # Project Summary (Cost Categories)
+    writer.writerow(["Project Summary"])
+    writer.writerow(["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"])
+    final_summary = current_project.get("final_summary", [])
+    for row in final_summary:
+        writer.writerow([
+            row.get("Category", ""),
+            row.get("Original Cost ($)", 0),
+            row.get("Margin (%)", 0),
+            row.get("Cost with Margin ($)", 0)
+        ])
+    writer.writerow([])
+
+    # Detailed Itemized Costs table
+    writer.writerow(["Detailed Itemized Costs"])
+    writer.writerow(
+        ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Cost per Panel", "% Total Cost"])
+    # IMPORTANT: Use only the list from itemized_costs (the cost summary displayed on screen)
+    line_items = current_project.get("itemized_costs", [])
+    swr_panel_count = current_project.get("swr_total_quantity", 1) or 1
+    grand_total = current_project.get("grand_total", 0)
+    # For each item, calculate cost per panel and percentage of total cost
+    for item in line_items:
+        category = item.get("Category", "")
+        material = item.get("Selected Material", "")
+        unit_cost = item.get("Unit Cost", 0)
+        calc_text = item.get("Calculation", "")
+        cost = item.get("Cost ($)", 0)
+        cost_per_panel = cost / swr_panel_count if swr_panel_count else ""
+        percent_total = (cost / grand_total * 100) if grand_total else 0
+        writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_panel, percent_total])
+
+    return output.getvalue()
+
+
+# =========================
+# EXCEL EXPORT (Detailed Final Export)
+# =========================
+def create_final_export_excel(margins_dict=None):
+    # This function mimics the CSV layout in Excel.
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine="xlsxwriter")
+    workbook = writer.book
+    ws = workbook.add_worksheet("Project Export")
+
+    # Top Left: Project Info
+    ws.write("A1", "Project Name:")
+    ws.write("B1", current_project.get("project_name", "Unnamed Project"))
+    ws.write("A2", "Project Number:")
+    ws.write("B2", current_project.get("project_number", ""))
+    ws.write("A3", "Date:")
+    ws.write("B3", datetime.datetime.now().strftime("%Y-%m-%d"))
+
+    # Top Center: Combined Totals (vertical layout, starting at D1)
+    ws.write("D1", "Combined Totals")
+    ws.write("D2", "Panels")
+    ws.write("E2", current_project.get("swr_total_quantity", 0) + current_project.get("igr_total_quantity", 0))
+    ws.write("D3", "Area (sq ft)")
+    ws.write("E3", current_project.get("swr_total_area", 0) + current_project.get("igr_total_area", 0))
+    ws.write("D4", "Perimeter (ft)")
+    ws.write("E4", current_project.get("swr_total_perimeter", 0) + current_project.get("igr_total_perimeter", 0))
+    ws.write("D5", "Horizontal (ft)")
+    ws.write("E5",
+             current_project.get("swr_total_horizontal_ft", 0) + current_project.get("igr_total_horizontal_ft", 0))
+    ws.write("D6", "Vertical (ft)")
+    ws.write("E6", current_project.get("swr_total_vertical_ft", 0) + current_project.get("igr_total_vertical_ft", 0))
+
+    # Top Right: Project Summary (vertical layout, starting at G1)
+    ws.write("G1", "Project Summary")
+    ws.write("G2", "Category")
+    ws.write("H2", "Original Cost ($)")
+    ws.write("I2", "Margin (%)")
+    ws.write("J2", "Cost with Margin ($)")
+    row = 3
+    for item in current_project.get("final_summary", []):
+        ws.write(row, 6, item.get("Category", ""))
+        ws.write(row, 7, item.get("Original Cost ($)", 0))
+        ws.write(row, 8, item.get("Margin (%)", 0))
+        ws.write(row, 9, item.get("Cost with Margin ($)", 0))
+        row += 1
+
+    # Detailed Itemized Costs table: starting at row 9
+    start_row = 9
+    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Cost per Panel",
+                      "% Total Cost"]
+    for col, header in enumerate(headers_detail):
+        ws.write(start_row, col, header)
+    line_items = current_project.get("itemized_costs", [])
+    swr_panel_count = current_project.get("swr_total_quantity", 1) or 1
+    grand_total = current_project.get("grand_total", 0)
+    for i, item in enumerate(line_items, start=start_row + 1):
+        category = item.get("Category", "")
+        material = item.get("Selected Material", "")
+        unit_cost = item.get("Unit Cost", 0)
+        calc_text = item.get("Calculation", "")
+        cost = item.get("Cost ($)", 0)
+        cost_per_panel = cost / swr_panel_count if swr_panel_count else ""
+        percent_total = (cost / grand_total * 100) if grand_total else 0
+        ws.write(i, 0, category)
+        ws.write(i, 1, material)
+        ws.write(i, 2, unit_cost)
+        ws.write(i, 3, calc_text)
+        ws.write(i, 4, cost)
+        ws.write(i, 5, cost_per_panel)
+        ws.write(i, 6, percent_total)
+
+    writer.close()
+    output.seek(0)
+    return output
+
+
+# =========================
+# DOWNLOAD FINAL EXPORT (Excel) ROUTE
+# =========================
+@app.route('/download_final_export')
+def download_final_export():
+    excel_file = create_final_export_excel()
+    return send_file(excel_file, attachment_filename="Project_Cost_Summary.xlsx", as_attachment=True)
 
 
 if __name__ == '__main__':
