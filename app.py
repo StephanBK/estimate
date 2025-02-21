@@ -223,7 +223,7 @@ def summary():
 
 
 # =========================
-# MATERIALS PAGE (SWR Materials Only) with Head Retainers Added
+# MATERIALS PAGE (SWR Materials Only) with Yield Integration
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
@@ -273,31 +273,37 @@ def materials():
         total_horizontal = current_project.get('swr_total_horizontal_ft', 0)
         total_quantity = current_project.get('swr_total_quantity', 0)
 
-        cost_glass = (total_area * mat_glass.cost) if mat_glass else 0
+        # Define yield factors:
+        yield_standard = 0.91
+        yield_aluminum = 0.75
+        yield_glass = 0.97
+
+        cost_glass = (total_area * mat_glass.cost) / yield_glass if mat_glass else 0
         if mat_aluminum:
             if aluminum_option == 'head_retainer':
-                cost_aluminum = ((total_perimeter + (total_horizontal / 2)) * mat_aluminum.cost)
+                cost_aluminum = ((total_perimeter + (total_horizontal / 2)) * mat_aluminum.cost) / yield_aluminum
             elif aluminum_option == 'head_and_sill':
-                cost_aluminum = ((total_perimeter + total_horizontal) * mat_aluminum.cost)
+                cost_aluminum = ((total_perimeter + total_horizontal) * mat_aluminum.cost) / yield_aluminum
             else:
                 cost_aluminum = 0
         else:
             cost_aluminum = 0
-        cost_glazing = (total_perimeter * mat_glazing.cost) if mat_glazing else 0
-        cost_gaskets = (total_vertical * mat_gaskets.cost) if mat_gaskets else 0
-        cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) if mat_corner_keys else 0
-        cost_dual_lock = (total_vertical * mat_dual_lock.cost) if mat_dual_lock else 0
-        cost_foam_baffle = (total_horizontal * mat_foam_baffle.cost) if mat_foam_baffle else 0
-        cost_glass_protection = (total_horizontal * mat_glass_protection.cost) if mat_glass_protection else 0
+        cost_glazing = (total_perimeter * mat_glazing.cost) / yield_standard if mat_glazing else 0
+        cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_standard if mat_gaskets else 0
+        cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_standard if mat_corner_keys else 0
+        cost_dual_lock = (total_vertical * mat_dual_lock.cost) / yield_standard if mat_dual_lock else 0
+        cost_foam_baffle = (total_horizontal * mat_foam_baffle.cost) / yield_standard if mat_foam_baffle else 0
+        cost_glass_protection = (
+                                            total_horizontal * mat_glass_protection.cost) / yield_standard if mat_glass_protection else 0
         if mat_tape:
             if tape_option == 'head_retainer':
-                cost_tape = ((total_horizontal / 2) * mat_tape.cost)
+                cost_tape = ((total_horizontal / 2) * mat_tape.cost) / yield_standard
             else:
-                cost_tape = (total_horizontal * mat_tape.cost)
+                cost_tape = (total_horizontal * mat_tape.cost) / yield_standard
         else:
             cost_tape = 0
-        # New: Head Retainers cost: half of total horizontal (ft) × unit price
-        cost_head_retainers = ((total_horizontal / 2) * mat_head_retainers.cost) if mat_head_retainers else 0
+        cost_head_retainers = ((
+                                           total_horizontal / 2) * mat_head_retainers.cost) / yield_standard if mat_head_retainers else 0
 
         total_material_cost = (cost_glass + cost_aluminum + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle +
@@ -325,7 +331,7 @@ def materials():
                    <td>Glass (Cat 15)</td>
                    <td>{mat_glass.nickname if mat_glass else "N/A"}</td>
                    <td>{mat_glass.cost if mat_glass else 0:.2f}</td>
-                   <td>Total Area (sq ft): {total_area:.2f} × Cost</td>
+                   <td>Total Area (sq ft): {total_area:.2f} × Cost / 0.97</td>
                    <td>{cost_glass:.2f}</td>
                  </tr>
                  <tr>
@@ -334,7 +340,7 @@ def materials():
                    <td>{mat_aluminum.cost if mat_aluminum else 0:.2f}</td>
                    <td>
                      Option: {aluminum_option}<br>
-                     {"(Perimeter + 0.5×Horizontal)" if aluminum_option == "head_retainer" else "(Perimeter + Horizontal)"} × Cost
+                     {"(Perimeter + 0.5×Horizontal)" if aluminum_option == "head_retainer" else "(Perimeter + Horizontal)"} × Cost / 0.75
                    </td>
                    <td>{cost_aluminum:.2f}</td>
                  </tr>
@@ -342,42 +348,42 @@ def materials():
                    <td>Glazing Spline (Cat 2)</td>
                    <td>{mat_glazing.nickname if mat_glazing else "N/A"}</td>
                    <td>{mat_glazing.cost if mat_glazing else 0:.2f}</td>
-                   <td>Total Perimeter (ft): {total_perimeter:.2f} × Cost</td>
+                   <td>Total Perimeter (ft): {total_perimeter:.2f} × Cost / 0.91</td>
                    <td>{cost_glazing:.2f}</td>
                  </tr>
                  <tr>
                    <td>Gaskets (Cat 3)</td>
                    <td>{mat_gaskets.nickname if mat_gaskets else "N/A"}</td>
                    <td>{mat_gaskets.cost if mat_gaskets else 0:.2f}</td>
-                   <td>Total Vertical (ft): {total_vertical:.2f} × Cost</td>
+                   <td>Total Vertical (ft): {total_vertical:.2f} × Cost / 0.91</td>
                    <td>{cost_gaskets:.2f}</td>
                  </tr>
                  <tr>
                    <td>Corner Keys (Cat 4)</td>
                    <td>{mat_corner_keys.nickname if mat_corner_keys else "N/A"}</td>
                    <td>{mat_corner_keys.cost if mat_corner_keys else 0:.2f}</td>
-                   <td>Total Quantity: {total_quantity:.2f} × 4 × Cost</td>
+                   <td>Total Quantity: {total_quantity:.2f} × 4 × Cost / 0.91</td>
                    <td>{cost_corner_keys:.2f}</td>
                  </tr>
                  <tr>
                    <td>Dual Lock (Cat 5)</td>
                    <td>{mat_dual_lock.nickname if mat_dual_lock else "N/A"}</td>
                    <td>{mat_dual_lock.cost if mat_dual_lock else 0:.2f}</td>
-                   <td>Total Vertical (ft): {total_vertical:.2f} × Cost</td>
+                   <td>Total Vertical (ft): {total_vertical:.2f} × Cost / 0.91</td>
                    <td>{cost_dual_lock:.2f}</td>
                  </tr>
                  <tr>
                    <td>Foam Baffle (Cat 6)</td>
                    <td>{mat_foam_baffle.nickname if mat_foam_baffle else "N/A"}</td>
                    <td>{mat_foam_baffle.cost if mat_foam_baffle else 0:.2f}</td>
-                   <td>Total Horizontal (ft): {total_horizontal:.2f} × Cost</td>
+                   <td>Total Horizontal (ft): {total_horizontal:.2f} × Cost / 0.91</td>
                    <td>{cost_foam_baffle:.2f}</td>
                  </tr>
                  <tr>
                    <td>Glass Protection (Cat 7)</td>
                    <td>{mat_glass_protection.nickname if mat_glass_protection else "N/A"}</td>
                    <td>{mat_glass_protection.cost if mat_glass_protection else 0:.2f}</td>
-                   <td>Total Horizontal (ft): {total_horizontal:.2f} × Cost</td>
+                   <td>Total Horizontal (ft): {total_horizontal:.2f} × Cost / 0.91</td>
                    <td>{cost_glass_protection:.2f}</td>
                  </tr>
                  <tr>
@@ -386,8 +392,7 @@ def materials():
                    <td>{mat_tape.cost if mat_tape else 0:.2f}</td>
                    <td>
                      Option: {tape_option}<br>
-                     {"(Half Horizontal)" if tape_option == "head_retainer" else "(Full Horizontal)"}<br>
-                     × Total Horizontal (ft): {total_horizontal:.2f} × Cost
+                     {"(Half Horizontal)" if tape_option == "head_retainer" else "(Full Horizontal)"} × Total Horizontal (ft): {total_horizontal:.2f} × Cost / 0.91
                    </td>
                    <td>{cost_tape:.2f}</td>
                  </tr>
@@ -395,7 +400,7 @@ def materials():
                    <td>Head Retainers (Cat 17)</td>
                    <td>{mat_head_retainers.nickname if mat_head_retainers else "N/A"}</td>
                    <td>{mat_head_retainers.cost if mat_head_retainers else 0:.2f}</td>
-                   <td>0.5 × Total Horizontal (ft) × Cost</td>
+                   <td>0.5 × Total Horizontal (ft) × Cost / 0.91</td>
                    <td>{cost_head_retainers:.2f}</td>
                  </tr>
                  <tr>
@@ -438,62 +443,62 @@ def materials():
          <div class="container">
             <h2>Select SWR Materials</h2>
             <form method="POST">
-               <label for="material_glass">Glass (Cat 15 - Total Area (sq ft) × Cost):</label>
+               <label for="material_glass">Glass (Cat 15 - Total Area (sq ft) × Cost / 0.97):</label>
                <select name="material_glass" id="material_glass" required>
                   {options_glass}
                </select>
 
                <label for="aluminum_option">Aluminum Option:</label>
                <select name="aluminum_option" id="aluminum_option" required>
-                  <option value="head_retainer">Head Retainer (Total Perimeter + 0.5 × Total Horizontal)</option>
-                  <option value="head_and_sill">Head and Sill (Total Perimeter + Total Horizontal)</option>
+                  <option value="head_retainer">Head Retainer (Total Perimeter + 0.5 × Total Horizontal) / 0.75</option>
+                  <option value="head_and_sill">Head and Sill (Total Perimeter + Total Horizontal) / 0.75</option>
                </select>
                <label for="material_aluminum">Aluminum (Cat 1):</label>
                <select name="material_aluminum" id="material_aluminum" required>
                   {options_aluminum}
                </select>
 
-               <label for="material_glazing">Glazing Spline (Cat 2 - Total Perimeter (ft) × Cost):</label>
+               <label for="material_glazing">Glazing Spline (Cat 2 - Total Perimeter (ft) × Cost / 0.91):</label>
                <select name="material_glazing" id="material_glazing" required>
                   {options_glazing}
                </select>
 
-               <label for="material_gaskets">Gaskets (Cat 3 - Total Vertical (ft) × Cost):</label>
+               <label for="material_gaskets">Gaskets (Cat 3 - Total Vertical (ft) × Cost / 0.91):</label>
                <select name="material_gaskets" id="material_gaskets" required>
                   {options_gaskets}
                </select>
 
-               <label for="material_corner_keys">Corner Keys (Cat 4 - Total Quantity × 4 × Cost):</label>
+               <label for="material_corner_keys">Corner Keys (Cat 4 - Total Quantity × 4 × Cost / 0.91):</label>
                <select name="material_corner_keys" id="material_corner_keys" required>
                   {options_corner_keys}
                </select>
 
-               <label for="material_dual_lock">Dual Lock (Cat 5 - Total Vertical (ft) × Cost):</label>
+               <label for="material_dual_lock">Dual Lock (Cat 5 - Total Vertical (ft) × Cost / 0.91):</label>
                <select name="material_dual_lock" id="material_dual_lock" required>
                   {options_dual_lock}
                </select>
 
-               <label for="material_foam_baffle">Foam Baffle (Cat 6 - Total Horizontal (ft) × Cost):</label>
+               <label for="material_foam_baffle">Foam Baffle (Cat 6 - Total Horizontal (ft) × Cost / 0.91):</label>
                <select name="material_foam_baffle" id="material_foam_baffle" required>
                   {options_foam_baffle}
                </select>
 
-               <label for="material_glass_protection">Glass Protection (Cat 7 - Total Horizontal (ft) × Cost):</label>
+               <label for="material_glass_protection">Glass Protection (Cat 7 - Total Horizontal (ft) × Cost / 0.91):</label>
                <select name="material_glass_protection" id="material_glass_protection" required>
                   {options_glass_protection}
                </select>
 
                <label for="tape_option">Tape Option:</label>
                <select name="tape_option" id="tape_option" required>
-                  <option value="head_retainer">Head Retainer (Half Horizontal)</option>
-                  <option value="head_sill">Head+Sill (Full Horizontal)</option>
+                  <option value="head_retainer">Head Retainer (Half Horizontal) / 0.91</option>
+                  <option value="head_sill">Head+Sill (Full Horizontal) / 0.91</option>
                </select>
-               <label for="material_tape">Tape (Cat 10):</label>
+               <label for="material_tape">Tape (Cat 10 - Cost calculated / 0.91):</label>
                <select name="material_tape" id="material_tape" required>
                   {options_tape}
                </select>
 
-               <label for="material_head_retainers">Head Retainers (Cat 17 - 0.5 × Total Horizontal (ft) × Cost):</label>
+               <label for="material_head_retainers">Head Retainers (Cat 17 - 0.5 × Total Horizontal (ft) × Cost / 0.91):</label>
                <select name="material_head_retainers" id="material_head_retainers" required>
                   {options_head_retainers}
                </select>
