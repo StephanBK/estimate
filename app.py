@@ -1,12 +1,14 @@
-from flask import Flask, request, redirect, url_for, send_file, Response
+from flask import Flask, request, redirect, url_for, send_file, Response, session
 from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
 import os
 import io
 import csv
 import datetime
+import numpy as np  # To catch NumPy int64 types
 
 app = Flask(__name__)
+app.secret_key = "Ti5om4gm!"  # Replace with a secure random key
 
 # Database Configuration (update with your actual connection string)
 app.config[
@@ -40,8 +42,31 @@ class Material(db.Model):
     supplier = db.Column(db.String(100))
 
 
-# Global storage for current project details
-current_project = {}
+# Helper function: Recursively convert NumPy int64 (and similar types) to native Python int
+def make_serializable(obj):
+    if isinstance(obj, dict):
+        return {k: make_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [make_serializable(x) for x in obj]
+    elif isinstance(obj, np.int64):
+        return int(obj)
+    else:
+        return obj
+
+
+# Helper function: get or initialize current_project in session
+def get_current_project():
+    cp = session.get("current_project")
+    if cp is None:
+        cp = {}
+        session["current_project"] = cp
+    return cp
+
+
+# Helper function: save the project to session after converting to serializable types
+def save_current_project(cp):
+    session["current_project"] = make_serializable(cp)
+
 
 # Path to the CSV template
 TEMPLATE_PATH = 'estimation_template_template.csv'
@@ -71,17 +96,17 @@ common_css = """
 # =========================
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    cp = get_current_project()
     if request.method == 'POST':
-        project_name = request.form['project_name']
-        project_number = request.form['project_number']
+        cp['project_name'] = request.form['project_name']
+        cp['project_number'] = request.form['project_number']
         file = request.files['file']
         if file:
             file_path = os.path.join('uploads', file.filename)
             os.makedirs('uploads', exist_ok=True)
             file.save(file_path)
-            current_project['project_name'] = project_name
-            current_project['project_number'] = project_number
-            current_project['file_path'] = file_path
+            cp['file_path'] = file_path
+            save_current_project(cp)
             return redirect(url_for('summary'))
     return f"""
     <html>
@@ -118,7 +143,8 @@ def download_template():
 # =========================
 @app.route('/summary')
 def summary():
-    file_path = current_project.get('file_path')
+    cp = get_current_project()
+    file_path = cp.get('file_path')
     try:
         df = pd.read_csv(file_path)
     except Exception as e:
@@ -149,16 +175,17 @@ def summary():
     igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = compute_totals(
         df_igr) if not df_igr.empty else (0, 0, 0, 0, 0)
 
-    current_project['swr_total_area'] = swr_area
-    current_project['swr_total_perimeter'] = swr_perimeter
-    current_project['swr_total_vertical_ft'] = swr_vertical
-    current_project['swr_total_horizontal_ft'] = swr_horizontal
-    current_project['swr_total_quantity'] = swr_quantity
-    current_project['igr_total_area'] = igr_area
-    current_project['igr_total_perimeter'] = igr_perimeter
-    current_project['igr_total_vertical_ft'] = igr_vertical
-    current_project['igr_total_horizontal_ft'] = igr_horizontal
-    current_project['igr_total_quantity'] = igr_quantity
+    cp['swr_total_area'] = swr_area
+    cp['swr_total_perimeter'] = swr_perimeter
+    cp['swr_total_vertical_ft'] = swr_vertical
+    cp['swr_total_horizontal_ft'] = swr_horizontal
+    cp['swr_total_quantity'] = swr_quantity
+    cp['igr_total_area'] = igr_area
+    cp['igr_total_perimeter'] = igr_perimeter
+    cp['igr_total_vertical_ft'] = igr_vertical
+    cp['igr_total_horizontal_ft'] = igr_horizontal
+    cp['igr_total_quantity'] = igr_quantity
+    save_current_project(cp)
 
     summary_html = f"""
     <html>
@@ -169,8 +196,8 @@ def summary():
       <body>
          <div class="container">
             <h2>Project Summary</h2>
-            <p><strong>Project Name:</strong> {current_project.get('project_name')}</p>
-            <p><strong>Project Number:</strong> {current_project.get('project_number')}</p>
+            <p><strong>Project Name:</strong> {cp.get('project_name')}</p>
+            <p><strong>Project Number:</strong> {cp.get('project_number')}</p>
             <h3>SWR Totals</h3>
             <table class="summary-table">
               <tr><th>Metric</th><th>Value</th></tr>
@@ -203,6 +230,7 @@ def summary():
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
+    cp = get_current_project()
     try:
         materials_glass = Material.query.filter_by(category=15).all()
         materials_aluminum = Material.query.filter_by(category=1).all()
@@ -247,11 +275,11 @@ def materials():
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
         mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
 
-        total_area = current_project.get('swr_total_area', 0)
-        total_perimeter = current_project.get('swr_total_perimeter', 0)
-        total_vertical = current_project.get('swr_total_vertical_ft', 0)
-        total_horizontal = current_project.get('swr_total_horizontal_ft', 0)
-        total_quantity = current_project.get('swr_total_quantity', 0)
+        total_area = cp.get('swr_total_area', 0)
+        total_perimeter = cp.get('swr_total_perimeter', 0)
+        total_vertical = cp.get('swr_total_vertical_ft', 0)
+        total_horizontal = cp.get('swr_total_horizontal_ft', 0)
+        total_quantity = cp.get('swr_total_quantity', 0)
 
         cost_glass = (total_area * mat_glass.cost) / yield_glass if mat_glass else 0
         if mat_aluminum:
@@ -283,9 +311,9 @@ def materials():
         total_material_cost = (cost_glass + cost_aluminum + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle +
                                cost_glass_protection + cost_tape + cost_head_retainers)
-        current_project['material_total_cost'] = total_material_cost
+        cp['material_total_cost'] = total_material_cost
 
-        # Build a simplified list for the detailed itemized costs from the SWR cost summary displayed on screen.
+        # Build a simplified list for detailed itemized costs from the SWR cost summary
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -360,7 +388,8 @@ def materials():
                 "Cost ($)": cost_head_retainers
             }
         ]
-        current_project["itemized_costs"] = materials_list
+        cp["itemized_costs"] = materials_list
+        save_current_project(cp)
 
         # Build an HTML table for display
         table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th></tr>"
@@ -368,7 +397,8 @@ def materials():
             table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td></tr>"
         table_html += "</table>"
 
-        current_project["materials_breakdown"] = table_html
+        cp["materials_breakdown"] = table_html
+        save_current_project(cp)
 
         return f"""
          <html>
@@ -488,8 +518,9 @@ def materials():
 # =========================
 @app.route('/other_costs', methods=['GET', 'POST'])
 def other_costs():
-    material_cost = current_project.get('material_total_cost', 0)
-    total_quantity = current_project.get('total_quantity', 0)
+    cp = get_current_project()
+    material_cost = cp.get('material_total_cost', 0)
+    total_quantity = cp.get('total_quantity', 0)
     if request.method == 'POST':
         num_trucks = float(request.form.get('num_trucks', 0))
         cost_per_truck = float(request.form.get('truck_cost', 0))
@@ -527,13 +558,14 @@ def other_costs():
         additional_total = total_truck_cost + installation_cost + equipment_cost + travel_cost + sales_cost
         grand_total = material_cost + additional_total
 
-        current_project["total_truck_cost"] = total_truck_cost
-        current_project["installation_cost"] = installation_cost
-        current_project["equipment_cost"] = equipment_cost
-        current_project["travel_cost"] = travel_cost
-        current_project["sales_cost"] = sales_cost
-        current_project["additional_total"] = additional_total
-        current_project["grand_total"] = grand_total
+        cp["total_truck_cost"] = total_truck_cost
+        cp["installation_cost"] = installation_cost
+        cp["equipment_cost"] = equipment_cost
+        cp["travel_cost"] = travel_cost
+        cp["sales_cost"] = sales_cost
+        cp["additional_total"] = additional_total
+        cp["grand_total"] = grand_total
+        save_current_project(cp)
 
         result_html = f"""
          <html>
@@ -643,13 +675,14 @@ def other_costs():
 # =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
+    cp = get_current_project()
     base_costs = {
-        "Panel Total": current_project.get("material_total_cost", 0),
-        "Logistics": current_project.get("total_truck_cost", 0),
-        "Installation": current_project.get("installation_cost", 0),
-        "Equipment": current_project.get("equipment_cost", 0),
-        "Travel": current_project.get("travel_cost", 0),
-        "Sales": current_project.get("sales_cost", 0)
+        "Panel Total": cp.get("material_total_cost", 0),
+        "Logistics": cp.get("total_truck_cost", 0),
+        "Installation": cp.get("installation_cost", 0),
+        "Equipment": cp.get("equipment_cost", 0),
+        "Travel": cp.get("travel_cost", 0),
+        "Sales": cp.get("sales_cost", 0)
     }
     if request.method == 'POST':
         margins = {}
@@ -672,15 +705,16 @@ def margins():
         df_summary.to_csv(csv_buffer, index=False)
         csv_output = csv_buffer.getvalue()
 
-        current_project["final_summary"] = []
+        cp["final_summary"] = []
         for cat in base_costs:
-            current_project["final_summary"].append({
+            cp["final_summary"].append({
                 "Category": cat,
                 "Original Cost ($)": base_costs[cat],
                 "Margin (%)": margins.get(cat, 0),
                 "Cost with Margin ($)": adjusted_costs[cat]
             })
-        current_project["grand_total"] = final_total
+        cp["grand_total"] = final_total
+        save_current_project(cp)
 
         result_html = f"""
          <html>
@@ -774,12 +808,13 @@ def download_final_summary():
 
 
 def create_final_summary_csv():
+    cp = get_current_project()
     output = io.StringIO()
     writer = csv.writer(output)
 
     # Top header: Only display Project Name, Project Number, and Current Date.
-    project_name = current_project.get("project_name", "Unnamed Project")
-    project_number = current_project.get("project_number", "")
+    project_name = cp.get("project_name", "Unnamed Project")
+    project_number = cp.get("project_number", "")
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
     writer.writerow(["Project Name:", project_name])
     writer.writerow(["Project Number:", project_number])
@@ -787,16 +822,16 @@ def create_final_summary_csv():
     writer.writerow([])
 
     # Combined Totals
-    swr_panels = current_project.get("swr_total_quantity", 0)
-    swr_area = current_project.get("swr_total_area", 0)
-    swr_perimeter = current_project.get("swr_total_perimeter", 0)
-    swr_horizontal = current_project.get("swr_total_horizontal_ft", 0)
-    swr_vertical = current_project.get("swr_total_vertical_ft", 0)
-    igr_panels = current_project.get("igr_total_quantity", 0)
-    igr_area = current_project.get("igr_total_area", 0)
-    igr_perimeter = current_project.get("igr_total_perimeter", 0)
-    igr_horizontal = current_project.get("igr_total_horizontal_ft", 0)
-    igr_vertical = current_project.get("igr_total_vertical_ft", 0)
+    swr_panels = cp.get("swr_total_quantity", 0)
+    swr_area = cp.get("swr_total_area", 0)
+    swr_perimeter = cp.get("swr_total_perimeter", 0)
+    swr_horizontal = cp.get("swr_total_horizontal_ft", 0)
+    swr_vertical = cp.get("swr_total_vertical_ft", 0)
+    igr_panels = cp.get("igr_total_quantity", 0)
+    igr_area = cp.get("igr_total_area", 0)
+    igr_perimeter = cp.get("igr_total_perimeter", 0)
+    igr_horizontal = cp.get("igr_total_horizontal_ft", 0)
+    igr_vertical = cp.get("igr_total_vertical_ft", 0)
     combined_panels = swr_panels + igr_panels
     combined_area = swr_area + igr_area
     combined_perimeter = swr_perimeter + igr_perimeter
@@ -811,7 +846,7 @@ def create_final_summary_csv():
     # Project Summary (Cost Categories)
     writer.writerow(["Project Summary"])
     writer.writerow(["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"])
-    final_summary = current_project.get("final_summary", [])
+    final_summary = cp.get("final_summary", [])
     for row in final_summary:
         writer.writerow([
             row.get("Category", ""),
@@ -821,14 +856,13 @@ def create_final_summary_csv():
         ])
     writer.writerow([])
 
-    # Detailed Itemized Costs table
+    # Detailed Itemized Costs table (using the itemized_costs list)
     writer.writerow(["Detailed Itemized Costs"])
     writer.writerow(
         ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Cost per Panel", "% Total Cost"])
-    # Use only the list from itemized_costs (the cost summary displayed on screen)
-    line_items = current_project.get("itemized_costs", [])
-    swr_panel_count = current_project.get("swr_total_quantity", 1) or 1
-    grand_total = current_project.get("grand_total", 0)
+    line_items = cp.get("itemized_costs", [])
+    swr_panel_count = cp.get("swr_total_quantity", 1) or 1
+    grand_total = cp.get("grand_total", 0)
     for item in line_items:
         category = item.get("Category", "")
         material = item.get("Selected Material", "")
@@ -846,7 +880,7 @@ def create_final_summary_csv():
 # EXCEL EXPORT (Detailed Final Export)
 # =========================
 def create_final_export_excel(margins_dict=None):
-    # This function mimics the CSV layout in Excel.
+    cp = get_current_project()
     output = io.BytesIO()
     writer = pd.ExcelWriter(output, engine="xlsxwriter")
     workbook = writer.book
@@ -854,25 +888,24 @@ def create_final_export_excel(margins_dict=None):
 
     # Top Left: Project Info
     ws.write("A1", "Project Name:")
-    ws.write("B1", current_project.get("project_name", "Unnamed Project"))
+    ws.write("B1", cp.get("project_name", "Unnamed Project"))
     ws.write("A2", "Project Number:")
-    ws.write("B2", current_project.get("project_number", ""))
+    ws.write("B2", cp.get("project_number", ""))
     ws.write("A3", "Date:")
     ws.write("B3", datetime.datetime.now().strftime("%Y-%m-%d"))
 
     # Top Center: Combined Totals (vertical layout, starting at D1)
     ws.write("D1", "Combined Totals")
     ws.write("D2", "Panels")
-    ws.write("E2", current_project.get("swr_total_quantity", 0) + current_project.get("igr_total_quantity", 0))
+    ws.write("E2", cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0))
     ws.write("D3", "Area (sq ft)")
-    ws.write("E3", current_project.get("swr_total_area", 0) + current_project.get("igr_total_area", 0))
+    ws.write("E3", cp.get("swr_total_area", 0) + cp.get("igr_total_area", 0))
     ws.write("D4", "Perimeter (ft)")
-    ws.write("E4", current_project.get("swr_total_perimeter", 0) + current_project.get("igr_total_perimeter", 0))
+    ws.write("E4", cp.get("swr_total_perimeter", 0) + cp.get("igr_total_perimeter", 0))
     ws.write("D5", "Horizontal (ft)")
-    ws.write("E5",
-             current_project.get("swr_total_horizontal_ft", 0) + current_project.get("igr_total_horizontal_ft", 0))
+    ws.write("E5", cp.get("swr_total_horizontal_ft", 0) + cp.get("igr_total_horizontal_ft", 0))
     ws.write("D6", "Vertical (ft)")
-    ws.write("E6", current_project.get("swr_total_vertical_ft", 0) + current_project.get("igr_total_vertical_ft", 0))
+    ws.write("E6", cp.get("swr_total_vertical_ft", 0) + cp.get("igr_total_vertical_ft", 0))
 
     # Top Right: Project Summary (vertical layout, starting at G1)
     ws.write("G1", "Project Summary")
@@ -881,7 +914,7 @@ def create_final_export_excel(margins_dict=None):
     ws.write("I2", "Margin (%)")
     ws.write("J2", "Cost with Margin ($)")
     row = 3
-    for item in current_project.get("final_summary", []):
+    for item in cp.get("final_summary", []):
         ws.write(row, 6, item.get("Category", ""))
         ws.write(row, 7, item.get("Original Cost ($)", 0))
         ws.write(row, 8, item.get("Margin (%)", 0))
@@ -894,9 +927,9 @@ def create_final_export_excel(margins_dict=None):
                       "% Total Cost"]
     for col, header in enumerate(headers_detail):
         ws.write(start_row, col, header)
-    line_items = current_project.get("itemized_costs", [])
-    swr_panel_count = current_project.get("swr_total_quantity", 1) or 1
-    grand_total = current_project.get("grand_total", 0)
+    line_items = cp.get("itemized_costs", [])
+    swr_panel_count = cp.get("swr_total_quantity", 1) or 1
+    grand_total = cp.get("grand_total", 0)
     for i, item in enumerate(line_items, start=start_row + 1):
         category = item.get("Category", "")
         material = item.get("Selected Material", "")
