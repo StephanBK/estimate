@@ -285,8 +285,7 @@ def materials():
                                cost_glass_protection + cost_tape + cost_head_retainers)
         current_project['material_total_cost'] = total_material_cost
 
-        # Instead of a complex list, we now simply use the cost summary displayed on screen
-        # For example, we build a list of dictionaries from the breakdown we display:
+        # Build a simplified list for the detailed itemized costs from the SWR cost summary displayed on screen.
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -826,11 +825,10 @@ def create_final_summary_csv():
     writer.writerow(["Detailed Itemized Costs"])
     writer.writerow(
         ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Cost per Panel", "% Total Cost"])
-    # IMPORTANT: Use only the list from itemized_costs (the cost summary displayed on screen)
+    # Use only the list from itemized_costs (the cost summary displayed on screen)
     line_items = current_project.get("itemized_costs", [])
     swr_panel_count = current_project.get("swr_total_quantity", 1) or 1
     grand_total = current_project.get("grand_total", 0)
-    # For each item, calculate cost per panel and percentage of total cost
     for item in line_items:
         category = item.get("Category", "")
         material = item.get("Selected Material", "")
