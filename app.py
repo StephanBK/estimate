@@ -5,12 +5,13 @@ import os
 import io
 import csv
 import datetime
-import numpy as np  # To catch NumPy int64 types
+import numpy as np
+import json
 
 app = Flask(__name__)
 app.secret_key = "Ti5om4gm!"  # Replace with a secure random key
 
-# Database Configuration (update with your actual connection string)
+# Database Configuration
 app.config[
     'SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -19,7 +20,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
-# Define the Material model (using 'nickname' for display)
+# Define the Material model
 class Material(db.Model):
     __tablename__ = 'materials'
     id = db.Column(db.Integer, primary_key=True)
@@ -42,7 +43,7 @@ class Material(db.Model):
     supplier = db.Column(db.String(100))
 
 
-# Helper function: Recursively convert NumPy int64 (and similar types) to native Python int
+# Helper: recursively convert np.int64 types
 def make_serializable(obj):
     if isinstance(obj, dict):
         return {k: make_serializable(v) for k, v in obj.items()}
@@ -54,7 +55,7 @@ def make_serializable(obj):
         return obj
 
 
-# Helper function: get or initialize current_project in session
+# Helper: get or initialize current_project in session
 def get_current_project():
     cp = session.get("current_project")
     if cp is None:
@@ -63,15 +64,15 @@ def get_current_project():
     return cp
 
 
-# Helper function: save the project to session after converting to serializable types
+# Helper: save current_project to session after conversion
 def save_current_project(cp):
     session["current_project"] = make_serializable(cp)
 
 
-# Path to the CSV template
+# Path to CSV template
 TEMPLATE_PATH = 'estimation_template_template.csv'
 
-# Common CSS for consistent styling
+# Common CSS
 common_css = """
     @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600&display=swap');
     body { background-color: #121212; color: #ffffff; font-family: 'Exo 2', sans-serif; padding: 20px; }
@@ -139,7 +140,7 @@ def download_template():
 
 
 # =========================
-# SUMMARY PAGE (Unchanged)
+# SUMMARY PAGE
 # =========================
 @app.route('/summary')
 def summary():
@@ -149,7 +150,6 @@ def summary():
         df = pd.read_csv(file_path)
     except Exception as e:
         return f"<h2 style='color: red;'>Error reading the file: {e}</h2>"
-
     if "Type" in df.columns:
         df_swr = df[df["Type"].str.upper() == "SWR"]
         df_igr = df[df["Type"].str.upper() == "IGR"]
@@ -162,8 +162,8 @@ def summary():
         df_subset['Total Area (sq ft)'] = (df_subset['Area (sq in)'] * df_subset['Qty']) / 144
         df_subset['Perimeter (in)'] = 2 * (df_subset['VGA Width in'] + df_subset['VGA Height in'])
         df_subset['Total Perimeter (ft)'] = (df_subset['Perimeter (in)'] * df_subset['Qty']) / 12
-        df_subset['Total Vertical (ft)'] = (df_subset['VGA Height in'] * df_subset['Qty']) / 12
-        df_subset['Total Horizontal (ft)'] = (df_subset['VGA Width in'] * df_subset['Qty']) / 12
+        df_subset['Total Vertical (ft)'] = (df_subset['VGA Height in'] * df_subset['Qty'] * 2) / 12
+        df_subset['Total Horizontal (ft)'] = (df_subset['VGA Width in'] * df_subset['Qty'] * 2) / 12
         total_area = df_subset['Total Area (sq ft)'].sum()
         total_perimeter = df_subset['Total Perimeter (ft)'].sum()
         total_vertical = df_subset['Total Vertical (ft)'].sum()
@@ -226,7 +226,7 @@ def summary():
 
 
 # =========================
-# MATERIALS PAGE (SWR Materials with Yield Integration)
+# MATERIALS PAGE (Yield Inputs per Category)
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
@@ -245,14 +245,53 @@ def materials():
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
-    # Define yield factors for both GET and POST
-    yield_glass = 0.97  # Category 15
-    yield_aluminum = 0.75  # Category 1
-    yield_standard = 0.91  # All others
-
     if request.method == 'POST':
-        selected_glass = request.form.get('material_glass')
+        # Retrieve yield factors for each category individually from each section
+        try:
+            yield_cat15 = float(request.form.get('yield_cat15', 0.97))
+        except:
+            yield_cat15 = 0.97
+        try:
+            yield_cat1 = float(request.form.get('yield_cat1', 0.75))
+        except:
+            yield_cat1 = 0.75
+        try:
+            yield_cat2 = float(request.form.get('yield_cat2', 0.91))
+        except:
+            yield_cat2 = 0.91
+        try:
+            yield_cat3 = float(request.form.get('yield_cat3', 0.91))
+        except:
+            yield_cat3 = 0.91
+        try:
+            yield_cat4 = float(request.form.get('yield_cat4', 0.91))
+        except:
+            yield_cat4 = 0.91
+        try:
+            yield_cat5 = float(request.form.get('yield_cat5', 0.91))
+        except:
+            yield_cat5 = 0.91
+        try:
+            yield_cat6 = float(request.form.get('yield_cat6', 0.91))
+        except:
+            yield_cat6 = 0.91
+        try:
+            yield_cat7 = float(request.form.get('yield_cat7', 0.91))
+        except:
+            yield_cat7 = 0.91
+        try:
+            yield_cat10 = float(request.form.get('yield_cat10', 0.91))
+        except:
+            yield_cat10 = 0.91
+        try:
+            yield_cat17 = float(request.form.get('yield_cat17', 0.91))
+        except:
+            yield_cat17 = 0.91
+
         aluminum_option = request.form.get('aluminum_option')
+        tape_option = request.form.get('tape_option')
+
+        selected_glass = request.form.get('material_glass')
         selected_aluminum = request.form.get('material_aluminum')
         selected_glazing = request.form.get('material_glazing')
         selected_gaskets = request.form.get('material_gaskets')
@@ -261,7 +300,6 @@ def materials():
         selected_foam_baffle = request.form.get('material_foam_baffle')
         selected_glass_protection = request.form.get('material_glass_protection')
         selected_tape = request.form.get('material_tape')
-        tape_option = request.form.get('tape_option')
         selected_head_retainers = request.form.get('material_head_retainers')
 
         mat_glass = Material.query.get(selected_glass) if selected_glass else None
@@ -281,45 +319,45 @@ def materials():
         total_horizontal = cp.get('swr_total_horizontal_ft', 0)
         total_quantity = cp.get('swr_total_quantity', 0)
 
-        cost_glass = (total_area * mat_glass.cost) / yield_glass if mat_glass else 0
+        cost_glass = (total_area * mat_glass.cost) / yield_cat15 if mat_glass else 0
         if mat_aluminum:
             if aluminum_option == 'head_retainer':
-                cost_aluminum = ((total_perimeter + (total_horizontal / 2)) * mat_aluminum.cost) / yield_aluminum
+                cost_aluminum = ((total_perimeter + (total_horizontal / 2)) * mat_aluminum.cost) / yield_cat1
             elif aluminum_option == 'head_and_sill':
-                cost_aluminum = ((total_perimeter + total_horizontal) * mat_aluminum.cost) / yield_aluminum
+                cost_aluminum = ((total_perimeter + total_horizontal) * mat_aluminum.cost) / yield_cat1
             else:
                 cost_aluminum = 0
         else:
             cost_aluminum = 0
-        cost_glazing = (total_perimeter * mat_glazing.cost) / yield_standard if mat_glazing else 0
-        cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_standard if mat_gaskets else 0
-        cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_standard if mat_corner_keys else 0
-        cost_dual_lock = (total_vertical * mat_dual_lock.cost) / yield_standard if mat_dual_lock else 0
-        cost_foam_baffle = (total_horizontal * mat_foam_baffle.cost) / yield_standard if mat_foam_baffle else 0
+        cost_glazing = (total_perimeter * mat_glazing.cost) / yield_cat2 if mat_glazing else 0
+        cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_cat3 if mat_gaskets else 0
+        cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_cat4 if mat_corner_keys else 0
+        cost_dual_lock = (total_vertical * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
+        cost_foam_baffle = (total_horizontal * mat_foam_baffle.cost) / yield_cat6 if mat_foam_baffle else 0
         cost_glass_protection = (
-                                            total_horizontal * mat_glass_protection.cost) / yield_standard if mat_glass_protection else 0
+                                            total_horizontal * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
         if mat_tape:
             if tape_option == 'head_retainer':
-                cost_tape = ((total_horizontal / 2) * mat_tape.cost) / yield_standard
+                cost_tape = ((total_horizontal / 2) * mat_tape.cost) / yield_cat10
             else:
-                cost_tape = (total_horizontal * mat_tape.cost) / yield_standard
+                cost_tape = (total_horizontal * mat_tape.cost) / yield_cat10
         else:
             cost_tape = 0
         cost_head_retainers = ((
-                                           total_horizontal / 2) * mat_head_retainers.cost) / yield_standard if mat_head_retainers else 0
+                                           total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
 
         total_material_cost = (cost_glass + cost_aluminum + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle +
                                cost_glass_protection + cost_tape + cost_head_retainers)
         cp['material_total_cost'] = total_material_cost
 
-        # Build a simplified list for detailed itemized costs from the SWR cost summary
+        # Build itemized list with extra columns: $ per SF and % Total Cost
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
                 "Selected Material": mat_glass.nickname if mat_glass else "N/A",
                 "Unit Cost": mat_glass.cost if mat_glass else 0,
-                "Calculation": f"Total Area {total_area:.2f} × Cost / 0.97",
+                "Calculation": f"Total Area {total_area:.2f} × Cost / {yield_cat15}",
                 "Cost ($)": cost_glass
             },
             {
@@ -327,49 +365,49 @@ def materials():
                 "Selected Material": mat_aluminum.nickname if mat_aluminum else "N/A",
                 "Unit Cost": mat_aluminum.cost if mat_aluminum else 0,
                 "Calculation": f"Option: {aluminum_option} - " + (
-                    "(Perimeter + 0.5×Horizontal)" if aluminum_option == "head_retainer" else "(Perimeter + Horizontal)") + " × Cost / 0.75",
+                    "(Perimeter + 0.5×Horizontal)" if aluminum_option == "head_retainer" else "(Perimeter + Horizontal)") + f" × Cost / {yield_cat1}",
                 "Cost ($)": cost_aluminum
             },
             {
                 "Category": "Glazing Spline (Cat 2)",
                 "Selected Material": mat_glazing.nickname if mat_glazing else "N/A",
                 "Unit Cost": mat_glazing.cost if mat_glazing else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / 0.91",
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_cat2}",
                 "Cost ($)": cost_glazing
             },
             {
                 "Category": "Gaskets (Cat 3)",
                 "Selected Material": mat_gaskets.nickname if mat_gaskets else "N/A",
                 "Unit Cost": mat_gaskets.cost if mat_gaskets else 0,
-                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / 0.91",
+                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / {yield_cat3}",
                 "Cost ($)": cost_gaskets
             },
             {
                 "Category": "Corner Keys (Cat 4)",
                 "Selected Material": mat_corner_keys.nickname if mat_corner_keys else "N/A",
                 "Unit Cost": mat_corner_keys.cost if mat_corner_keys else 0,
-                "Calculation": f"Total Quantity {total_quantity:.2f} × 4 × Cost / 0.91",
+                "Calculation": f"Total Quantity {total_quantity:.2f} × 4 × Cost / {yield_cat4}",
                 "Cost ($)": cost_corner_keys
             },
             {
                 "Category": "Dual Lock (Cat 5)",
                 "Selected Material": mat_dual_lock.nickname if mat_dual_lock else "N/A",
                 "Unit Cost": mat_dual_lock.cost if mat_dual_lock else 0,
-                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / 0.91",
+                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / {yield_cat5}",
                 "Cost ($)": cost_dual_lock
             },
             {
                 "Category": "Foam Baffle (Cat 6)",
                 "Selected Material": mat_foam_baffle.nickname if mat_foam_baffle else "N/A",
                 "Unit Cost": mat_foam_baffle.cost if mat_foam_baffle else 0,
-                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / 0.91",
+                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat6}",
                 "Cost ($)": cost_foam_baffle
             },
             {
                 "Category": "Glass Protection (Cat 7)",
                 "Selected Material": mat_glass_protection.nickname if mat_glass_protection else "N/A",
                 "Unit Cost": mat_glass_protection.cost if mat_glass_protection else 0,
-                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / 0.91",
+                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat7}",
                 "Cost ($)": cost_glass_protection
             },
             {
@@ -377,24 +415,29 @@ def materials():
                 "Selected Material": mat_tape.nickname if mat_tape else "N/A",
                 "Unit Cost": mat_tape.cost if mat_tape else 0,
                 "Calculation": f"Option: {tape_option} - " + (
-                    "(Half Horizontal)" if tape_option == "head_retainer" else "(Full Horizontal)") + f" × Total Horizontal {total_horizontal:.2f} × Cost / 0.91",
+                    "(Half Horizontal)" if tape_option == "head_retainer" else "(Full Horizontal)") + f" × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat10}",
                 "Cost ($)": cost_tape
             },
             {
                 "Category": "Head Retainers (Cat 17)",
                 "Selected Material": mat_head_retainers.nickname if mat_head_retainers else "N/A",
                 "Unit Cost": mat_head_retainers.cost if mat_head_retainers else 0,
-                "Calculation": "0.5 × Total Horizontal × Cost / 0.91",
+                "Calculation": f"0.5 × Total Horizontal × Cost / {yield_cat17}",
                 "Cost ($)": cost_head_retainers
             }
         ]
+        # Add extra columns: $ per SF and % Total Cost for each item
+        for item in materials_list:
+            cost = item["Cost ($)"]
+            item["$ per SF"] = cost / total_area if total_area > 0 else 0
+            item["% Total Cost"] = (cost / total_material_cost * 100) if total_material_cost > 0 else 0
+
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
 
-        # Build an HTML table for display
-        table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th></tr>"
+        table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th><th>$ per SF</th><th>% Total Cost</th></tr>"
         for item in materials_list:
-            table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td></tr>"
+            table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td><td>{item['$ per SF']:.2f}</td><td>{item['% Total Cost']:.2f}</td></tr>"
         table_html += "</table>"
 
         cp["materials_breakdown"] = table_html
@@ -444,62 +487,92 @@ def materials():
          <div class="container">
             <h2>Select SWR Materials</h2>
             <form method="POST">
-               <label for="material_glass">Glass (Cat 15 - Total Area (sq ft) × Cost / 0.97):</label>
+               <h3>Glass (Category 15)</h3>
+               <label for="yield_cat15">Yield for Glass:</label>
+               <input type="number" step="0.01" id="yield_cat15" name="yield_cat15" value="0.97" required>
+               <label for="material_glass">Glass - Total Area (sq ft) × Cost / Yield:</label>
                <select name="material_glass" id="material_glass" required>
                   {options_glass}
                </select>
 
+               <h3>Aluminum (Category 1)</h3>
+               <label for="yield_cat1">Yield for Aluminum:</label>
+               <input type="number" step="0.01" id="yield_cat1" name="yield_cat1" value="0.75" required>
                <label for="aluminum_option">Aluminum Option:</label>
                <select name="aluminum_option" id="aluminum_option" required>
-                  <option value="head_retainer">Head Retainer (Total Perimeter + 0.5 × Total Horizontal) / 0.75</option>
-                  <option value="head_and_sill">Head and Sill (Total Perimeter + Total Horizontal) / 0.75</option>
+                  <option value="head_retainer">Head Retainer (Total Perimeter + 0.5 × Total Horizontal) / Yield</option>
+                  <option value="head_and_sill">Head and Sill (Total Perimeter + Total Horizontal) / Yield</option>
                </select>
-               <label for="material_aluminum">Aluminum (Cat 1):</label>
+               <label for="material_aluminum">Aluminum (Category 1):</label>
                <select name="material_aluminum" id="material_aluminum" required>
                   {options_aluminum}
                </select>
 
-               <label for="material_glazing">Glazing Spline (Cat 2 - Total Perimeter (ft) × Cost / 0.91):</label>
+               <h3>Glazing Spline (Category 2)</h3>
+               <label for="yield_cat2">Yield for Glazing Spline:</label>
+               <input type="number" step="0.01" id="yield_cat2" name="yield_cat2" value="0.91" required>
+               <label for="material_glazing">Glazing Spline - Total Perimeter (ft) × Cost / Yield:</label>
                <select name="material_glazing" id="material_glazing" required>
                   {options_glazing}
                </select>
 
-               <label for="material_gaskets">Gaskets (Cat 3 - Total Vertical (ft) × Cost / 0.91):</label>
+               <h3>Gaskets (Category 3)</h3>
+               <label for="yield_cat3">Yield for Gaskets:</label>
+               <input type="number" step="0.01" id="yield_cat3" name="yield_cat3" value="0.91" required>
+               <label for="material_gaskets">Gaskets - Total Vertical (ft) × Cost / Yield:</label>
                <select name="material_gaskets" id="material_gaskets" required>
                   {options_gaskets}
                </select>
 
-               <label for="material_corner_keys">Corner Keys (Cat 4 - Total Quantity × 4 × Cost / 0.91):</label>
+               <h3>Corner Keys (Category 4)</h3>
+               <label for="yield_cat4">Yield for Corner Keys:</label>
+               <input type="number" step="0.01" id="yield_cat4" name="yield_cat4" value="0.91" required>
+               <label for="material_corner_keys">Corner Keys - Total Quantity × 4 × Cost / Yield:</label>
                <select name="material_corner_keys" id="material_corner_keys" required>
                   {options_corner_keys}
                </select>
 
-               <label for="material_dual_lock">Dual Lock (Cat 5 - Total Vertical (ft) × Cost / 0.91):</label>
+               <h3>Dual Lock (Category 5)</h3>
+               <label for="yield_cat5">Yield for Dual Lock:</label>
+               <input type="number" step="0.01" id="yield_cat5" name="yield_cat5" value="0.91" required>
+               <label for="material_dual_lock">Dual Lock - Total Vertical (ft) × Cost / Yield:</label>
                <select name="material_dual_lock" id="material_dual_lock" required>
                   {options_dual_lock}
                </select>
 
-               <label for="material_foam_baffle">Foam Baffle (Cat 6 - Total Horizontal (ft) × Cost / 0.91):</label>
+               <h3>Foam Baffle (Category 6)</h3>
+               <label for="yield_cat6">Yield for Foam Baffle:</label>
+               <input type="number" step="0.01" id="yield_cat6" name="yield_cat6" value="0.91" required>
+               <label for="material_foam_baffle">Foam Baffle - Total Horizontal (ft) × Cost / Yield:</label>
                <select name="material_foam_baffle" id="material_foam_baffle" required>
                   {options_foam_baffle}
                </select>
 
-               <label for="material_glass_protection">Glass Protection (Cat 7 - Total Horizontal (ft) × Cost / 0.91):</label>
+               <h3>Glass Protection (Category 7)</h3>
+               <label for="yield_cat7">Yield for Glass Protection:</label>
+               <input type="number" step="0.01" id="yield_cat7" name="yield_cat7" value="0.91" required>
+               <label for="material_glass_protection">Glass Protection - Total Horizontal (ft) × Cost / Yield:</label>
                <select name="material_glass_protection" id="material_glass_protection" required>
                   {options_glass_protection}
                </select>
 
+               <h3>Tape (Category 10)</h3>
+               <label for="yield_cat10">Yield for Tape:</label>
+               <input type="number" step="0.01" id="yield_cat10" name="yield_cat10" value="0.91" required>
                <label for="tape_option">Tape Option:</label>
                <select name="tape_option" id="tape_option" required>
-                  <option value="head_retainer">Head Retainer (Half Horizontal) / 0.91</option>
-                  <option value="head_sill">Head+Sill (Full Horizontal) / 0.91</option>
+                  <option value="head_retainer">Head Retainer (Half Horizontal) / Yield</option>
+                  <option value="head_sill">Head+Sill (Full Horizontal) / Yield</option>
                </select>
-               <label for="material_tape">Tape (Cat 10 - Cost calculated / 0.91):</label>
+               <label for="material_tape">Tape - Cost calculated / Yield:</label>
                <select name="material_tape" id="material_tape" required>
                   {options_tape}
                </select>
 
-               <label for="material_head_retainers">Head Retainers (Cat 17 - 0.5 × Total Horizontal (ft) × Cost / 0.91):</label>
+               <h3>Head Retainers (Category 17)</h3>
+               <label for="yield_cat17">Yield for Head Retainers:</label>
+               <input type="number" step="0.01" id="yield_cat17" name="yield_cat17" value="0.91" required>
+               <label for="material_head_retainers">Head Retainers - 0.5 × Total Horizontal (ft) × Cost / Yield:</label>
                <select name="material_head_retainers" id="material_head_retainers" required>
                   {options_head_retainers}
                </select>
@@ -511,6 +584,7 @@ def materials():
       </body>
     </html>
     """
+    return form_html
 
 
 # =========================
@@ -668,10 +742,11 @@ def other_costs():
       </body>
     </html>
     """
+    return form_html
 
 
 # =========================
-# MARGINS PAGE (Unchanged)
+# MARGINS PAGE (with Dynamic $/SF Calculation)
 # =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
@@ -684,6 +759,7 @@ def margins():
         "Travel": cp.get("travel_cost", 0),
         "Sales": cp.get("sales_cost", 0)
     }
+    total_area = cp.get("swr_total_area", 0) + cp.get("igr_total_area", 0)
     if request.method == 'POST':
         margins = {}
         for category in base_costs:
@@ -754,6 +830,39 @@ def margins():
                </form>
                <button onclick="window.location.href='/'">Start New Project</button>
              </div>
+             <div class="container">
+               <h3>Dynamic Cost per SF</h3>
+               <p>Total Cost with Margins divided by Total SF:</p>
+               <p>Total SF: {total_area:.2f}</p>
+               <p>$ per SF: $<span id="cost_per_sf">0.00</span></p>
+             </div>
+             <script>
+                function updateOutput(sliderId, outputId) {{
+                    var slider = document.getElementById(sliderId);
+                    var output = document.getElementById(outputId);
+                    output.value = slider.value;
+                    recalcCostPerSF();
+                }}
+                function recalcCostPerSF() {{
+                    var baseCosts = {json.dumps(base_costs)};
+                    var totalArea = {total_area};
+                    var adjustedTotal = 0;
+                    for (var cat in baseCosts) {{
+                        var slider = document.getElementById(cat.replace(/ /g, "_") + "_margin");
+                        var margin = parseFloat(slider.value) || 0;
+                        adjustedTotal += baseCosts[cat] * (1 + margin / 100);
+                    }}
+                    var costPerSF = adjustedTotal / totalArea;
+                    document.getElementById("cost_per_sf").innerText = costPerSF.toFixed(2);
+                }}
+                window.addEventListener("load", function() {{
+                    var sliders = document.querySelectorAll("input[type='range']");
+                    sliders.forEach(function(slider) {{
+                        slider.addEventListener("input", recalcCostPerSF);
+                    }});
+                    recalcCostPerSF();
+                }});
+             </script>
            </body>
          </html>
         """
@@ -769,7 +878,27 @@ def margins():
                 var slider = document.getElementById(sliderId);
                 var output = document.getElementById(outputId);
                 output.value = slider.value;
+                recalcCostPerSF();
             }}
+            function recalcCostPerSF() {{
+                var baseCosts = {json.dumps(base_costs)};
+                var totalArea = {total_area};
+                var adjustedTotal = 0;
+                for (var cat in baseCosts) {{
+                    var slider = document.getElementById(cat.replace(/ /g, "_") + "_margin");
+                    var margin = parseFloat(slider.value) || 0;
+                    adjustedTotal += baseCosts[cat] * (1 + margin / 100);
+                }}
+                var costPerSF = adjustedTotal / totalArea;
+                document.getElementById("cost_per_sf").innerText = costPerSF.toFixed(2);
+            }}
+            window.addEventListener("load", function() {{
+                var sliders = document.querySelectorAll("input[type='range']");
+                sliders.forEach(function(slider) {{
+                    slider.addEventListener("input", recalcCostPerSF);
+                }});
+                recalcCostPerSF();
+            }});
          </script>
       </head>
       <body>
@@ -778,14 +907,16 @@ def margins():
             <form method="POST">
     """
     for category in base_costs:
+        var_id = category.replace(" ", "_")
         form_html += f"""
-                <label for="{category}_margin">{category} Margin (%):</label>
-                <input type="range" id="{category}_margin" name="{category}_margin" min="0" max="100" step="1" value="0" oninput="updateOutput('{category}_margin', '{category}_output')">
-                <output id="{category}_output">0</output><br>
+                <label for="{var_id}_margin">{category} Margin (%):</label>
+                <input type="range" id="{var_id}_margin" name="{category}_margin" min="0" max="100" step="1" value="0" oninput="updateOutput('{var_id}_margin', '{var_id}_output')">
+                <output id="{var_id}_output">0</output><br>
         """
     form_html += """
                 <button type="submit">Calculate Final Cost with Margins</button>
             </form>
+            <p>Total Cost per SF: $<span id="cost_per_sf">0.00</span></p>
             <button onclick="window.location.href='/other_costs'">Back to Other Costs</button>
          </div>
       </body>
@@ -795,7 +926,7 @@ def margins():
 
 
 # =========================
-# DOWNLOAD FINAL SUMMARY CSV (Detailed Final Export)
+# DOWNLOAD FINAL SUMMARY CSV
 # =========================
 @app.route('/download_final_summary', methods=['POST'])
 def download_final_summary():
@@ -812,7 +943,6 @@ def create_final_summary_csv():
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Top header: Only display Project Name, Project Number, and Current Date.
     project_name = cp.get("project_name", "Unnamed Project")
     project_number = cp.get("project_number", "")
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -821,7 +951,6 @@ def create_final_summary_csv():
     writer.writerow(["Date:", current_date])
     writer.writerow([])
 
-    # Combined Totals
     swr_panels = cp.get("swr_total_quantity", 0)
     swr_area = cp.get("swr_total_area", 0)
     swr_perimeter = cp.get("swr_total_perimeter", 0)
@@ -843,7 +972,6 @@ def create_final_summary_csv():
     writer.writerow([combined_panels, combined_area, combined_perimeter, combined_horizontal, combined_vertical])
     writer.writerow([])
 
-    # Project Summary (Cost Categories)
     writer.writerow(["Project Summary"])
     writer.writerow(["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"])
     final_summary = cp.get("final_summary", [])
@@ -856,22 +984,19 @@ def create_final_summary_csv():
         ])
     writer.writerow([])
 
-    # Detailed Itemized Costs table (using the itemized_costs list)
     writer.writerow(["Detailed Itemized Costs"])
     writer.writerow(
-        ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Cost per Panel", "% Total Cost"])
+        ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost"])
     line_items = cp.get("itemized_costs", [])
-    swr_panel_count = cp.get("swr_total_quantity", 1) or 1
-    grand_total = cp.get("grand_total", 0)
     for item in line_items:
         category = item.get("Category", "")
         material = item.get("Selected Material", "")
         unit_cost = item.get("Unit Cost", 0)
         calc_text = item.get("Calculation", "")
         cost = item.get("Cost ($)", 0)
-        cost_per_panel = cost / swr_panel_count if swr_panel_count else ""
-        percent_total = (cost / grand_total * 100) if grand_total else 0
-        writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_panel, percent_total])
+        cost_per_sf = cost / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0
+        percent_total = (cost / cp.get("grand_total", 1) * 100) if cp.get("grand_total", 0) > 0 else 0
+        writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_sf, percent_total])
 
     return output.getvalue()
 
@@ -886,7 +1011,6 @@ def create_final_export_excel(margins_dict=None):
     workbook = writer.book
     ws = workbook.add_worksheet("Project Export")
 
-    # Top Left: Project Info
     ws.write("A1", "Project Name:")
     ws.write("B1", cp.get("project_name", "Unnamed Project"))
     ws.write("A2", "Project Number:")
@@ -894,7 +1018,6 @@ def create_final_export_excel(margins_dict=None):
     ws.write("A3", "Date:")
     ws.write("B3", datetime.datetime.now().strftime("%Y-%m-%d"))
 
-    # Top Center: Combined Totals (vertical layout, starting at D1)
     ws.write("D1", "Combined Totals")
     ws.write("D2", "Panels")
     ws.write("E2", cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0))
@@ -907,7 +1030,6 @@ def create_final_export_excel(margins_dict=None):
     ws.write("D6", "Vertical (ft)")
     ws.write("E6", cp.get("swr_total_vertical_ft", 0) + cp.get("igr_total_vertical_ft", 0))
 
-    # Top Right: Project Summary (vertical layout, starting at G1)
     ws.write("G1", "Project Summary")
     ws.write("G2", "Category")
     ws.write("H2", "Original Cost ($)")
@@ -921,29 +1043,26 @@ def create_final_export_excel(margins_dict=None):
         ws.write(row, 9, item.get("Cost with Margin ($)", 0))
         row += 1
 
-    # Detailed Itemized Costs table: starting at row 9
     start_row = 9
-    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Cost per Panel",
+    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF",
                       "% Total Cost"]
     for col, header in enumerate(headers_detail):
         ws.write(start_row, col, header)
     line_items = cp.get("itemized_costs", [])
-    swr_panel_count = cp.get("swr_total_quantity", 1) or 1
-    grand_total = cp.get("grand_total", 0)
     for i, item in enumerate(line_items, start=start_row + 1):
         category = item.get("Category", "")
         material = item.get("Selected Material", "")
         unit_cost = item.get("Unit Cost", 0)
         calc_text = item.get("Calculation", "")
         cost = item.get("Cost ($)", 0)
-        cost_per_panel = cost / swr_panel_count if swr_panel_count else ""
-        percent_total = (cost / grand_total * 100) if grand_total else 0
+        cost_per_sf = cost / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0
+        percent_total = (cost / cp.get("grand_total", 1) * 100) if cp.get("grand_total", 0) > 0 else 0
         ws.write(i, 0, category)
         ws.write(i, 1, material)
         ws.write(i, 2, unit_cost)
         ws.write(i, 3, calc_text)
         ws.write(i, 4, cost)
-        ws.write(i, 5, cost_per_panel)
+        ws.write(i, 5, cost_per_sf)
         ws.write(i, 6, percent_total)
 
     writer.close()
