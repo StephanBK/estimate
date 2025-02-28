@@ -43,7 +43,7 @@ class Material(db.Model):
     supplier = db.Column(db.String(100))
 
 
-# Helper: recursively convert np.int64 types
+# Helper: Recursively convert NumPy int64 to native types
 def make_serializable(obj):
     if isinstance(obj, dict):
         return {k: make_serializable(v) for k, v in obj.items()}
@@ -64,15 +64,15 @@ def get_current_project():
     return cp
 
 
-# Helper: save current_project to session after conversion
+# Helper: save current_project after converting to serializable types
 def save_current_project(cp):
     session["current_project"] = make_serializable(cp)
 
 
-# Path to CSV template
+# Path to the CSV template
 TEMPLATE_PATH = 'estimation_template_template.csv'
 
-# Common CSS
+# Common CSS for consistent styling
 common_css = """
     @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600&display=swap');
     body { background-color: #121212; color: #ffffff; font-family: 'Exo 2', sans-serif; padding: 20px; }
@@ -226,18 +226,22 @@ def summary():
 
 
 # =========================
-# MATERIALS PAGE (Yield Inputs per Category)
+# MATERIALS PAGE (with Updated Aluminum Split and Foam Baffle Split into 2 Items)
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
     cp = get_current_project()
     try:
+        # Glass from Category 15
         materials_glass = Material.query.filter_by(category=15).all()
-        materials_aluminum = Material.query.filter_by(category=1).all()
+        # Extrusions and Retainer from Category 1
+        materials_extrusions = Material.query.filter_by(category=1).all()
+        # Other categories remain unchanged
         materials_glazing = Material.query.filter_by(category=2).all()
         materials_gaskets = Material.query.filter_by(category=3).all()
         materials_corner_keys = Material.query.filter_by(category=4).all()
         materials_dual_lock = Material.query.filter_by(category=5).all()
+        # Foam Baffle now: Two separate items from Category 6 – one for Top/Head and one for Bottom/Sill
         materials_foam_baffle = Material.query.filter_by(category=6).all()
         materials_glass_protection = Material.query.filter_by(category=7).all()
         materials_tape = Material.query.filter_by(category=10).all()
@@ -246,15 +250,19 @@ def materials():
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
     if request.method == 'POST':
-        # Retrieve yield factors for each category individually from each section
+        # Get yield factors for each category
         try:
             yield_cat15 = float(request.form.get('yield_cat15', 0.97))
         except:
             yield_cat15 = 0.97
         try:
-            yield_cat1 = float(request.form.get('yield_cat1', 0.75))
+            yield_extrusions = float(request.form.get('yield_extrusions', 0.75))
         except:
-            yield_cat1 = 0.75
+            yield_extrusions = 0.75
+        try:
+            yield_retainer = float(request.form.get('yield_retainer', 0.75))
+        except:
+            yield_retainer = 0.75
         try:
             yield_cat2 = float(request.form.get('yield_cat2', 0.91))
         except:
@@ -288,28 +296,37 @@ def materials():
         except:
             yield_cat17 = 0.91
 
-        aluminum_option = request.form.get('aluminum_option')
-        tape_option = request.form.get('tape_option')
+        # For Extrusions and Retainer (from Category 1)
+        selected_extrusions = request.form.get('material_extrusions')
+        retainer_option = request.form.get('retainer_option')
+        selected_retainer = request.form.get('material_retainer')
+        # For Glass Protection
+        glass_protection_side = request.form.get('glass_protection_side')
 
+        # Other selections
         selected_glass = request.form.get('material_glass')
-        selected_aluminum = request.form.get('material_aluminum')
         selected_glazing = request.form.get('material_glazing')
         selected_gaskets = request.form.get('material_gaskets')
         selected_corner_keys = request.form.get('material_corner_keys')
         selected_dual_lock = request.form.get('material_dual_lock')
-        selected_foam_baffle = request.form.get('material_foam_baffle')
-        selected_glass_protection = request.form.get('material_glass_protection')
+        # For Foam Baffle, now use two separate fields:
+        selected_foam_baffle_top = request.form.get('material_foam_baffle')
+        selected_foam_baffle_bottom = request.form.get('material_foam_baffle_bottom')
         selected_tape = request.form.get('material_tape')
         selected_head_retainers = request.form.get('material_head_retainers')
 
         mat_glass = Material.query.get(selected_glass) if selected_glass else None
-        mat_aluminum = Material.query.get(selected_aluminum) if selected_aluminum else None
+        mat_extrusions = Material.query.get(selected_extrusions) if selected_extrusions else None
+        mat_retainer = Material.query.get(selected_retainer) if selected_retainer else None
         mat_glazing = Material.query.get(selected_glazing) if selected_glazing else None
         mat_gaskets = Material.query.get(selected_gaskets) if selected_gaskets else None
         mat_corner_keys = Material.query.get(selected_corner_keys) if selected_corner_keys else None
         mat_dual_lock = Material.query.get(selected_dual_lock) if selected_dual_lock else None
-        mat_foam_baffle = Material.query.get(selected_foam_baffle) if selected_foam_baffle else None
-        mat_glass_protection = Material.query.get(selected_glass_protection) if selected_glass_protection else None
+        mat_foam_baffle_top = Material.query.get(selected_foam_baffle_top) if selected_foam_baffle_top else None
+        mat_foam_baffle_bottom = Material.query.get(
+            selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
+        mat_glass_protection = Material.query.get(request.form.get('material_glass_protection')) if request.form.get(
+            'material_glass_protection') else None
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
         mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
 
@@ -320,24 +337,34 @@ def materials():
         total_quantity = cp.get('swr_total_quantity', 0)
 
         cost_glass = (total_area * mat_glass.cost) / yield_cat15 if mat_glass else 0
-        if mat_aluminum:
-            if aluminum_option == 'head_retainer':
-                cost_aluminum = ((total_perimeter + (total_horizontal / 2)) * mat_aluminum.cost) / yield_cat1
-            elif aluminum_option == 'head_and_sill':
-                cost_aluminum = ((total_perimeter + total_horizontal) * mat_aluminum.cost) / yield_cat1
-            else:
-                cost_aluminum = 0
+        cost_extrusions = (total_perimeter * mat_extrusions.cost) / yield_extrusions if mat_extrusions else 0
+        if retainer_option == "head_retainer":
+            cost_retainer = (0.5 * total_horizontal * mat_retainer.cost) / yield_retainer if mat_retainer else 0
+        elif retainer_option == "head_and_sill":
+            cost_retainer = (total_horizontal * mat_retainer.cost * yield_retainer) if mat_retainer else 0
         else:
-            cost_aluminum = 0
+            cost_retainer = 0
         cost_glazing = (total_perimeter * mat_glazing.cost) / yield_cat2 if mat_glazing else 0
         cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_cat3 if mat_gaskets else 0
         cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_cat4 if mat_corner_keys else 0
         cost_dual_lock = (total_vertical * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
-        cost_foam_baffle = (total_horizontal * mat_foam_baffle.cost) / yield_cat6 if mat_foam_baffle else 0
-        cost_glass_protection = (
-                                            total_horizontal * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
+        if mat_foam_baffle_top:
+            cost_foam_baffle_top = (0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6
+        else:
+            cost_foam_baffle_top = 0
+        if mat_foam_baffle_bottom:
+            cost_foam_baffle_bottom = (0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6
+        else:
+            cost_foam_baffle_bottom = 0
+        if glass_protection_side == "double":
+            cost_glass_protection = (
+                                                total_area * mat_glass_protection.cost * 2) / yield_cat7 if mat_glass_protection else 0
+        elif glass_protection_side == "none":
+            cost_glass_protection = 0
+        else:
+            cost_glass_protection = (total_area * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
         if mat_tape:
-            if tape_option == 'head_retainer':
+            if request.form.get('tape_option') == 'head_retainer':
                 cost_tape = ((total_horizontal / 2) * mat_tape.cost) / yield_cat10
             else:
                 cost_tape = (total_horizontal * mat_tape.cost) / yield_cat10
@@ -346,12 +373,12 @@ def materials():
         cost_head_retainers = ((
                                            total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
 
-        total_material_cost = (cost_glass + cost_aluminum + cost_glazing + cost_gaskets +
-                               cost_corner_keys + cost_dual_lock + cost_foam_baffle +
+        total_material_cost = (cost_glass + cost_extrusions + cost_retainer + cost_glazing + cost_gaskets +
+                               cost_corner_keys + cost_dual_lock + cost_foam_baffle_top + cost_foam_baffle_bottom +
                                cost_glass_protection + cost_tape + cost_head_retainers)
         cp['material_total_cost'] = total_material_cost
 
-        # Build itemized list with extra columns: $ per SF and % Total Cost
+        # Build the itemized list with extra columns: $ per SF and % Total Cost
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -361,12 +388,24 @@ def materials():
                 "Cost ($)": cost_glass
             },
             {
-                "Category": "Aluminum (Cat 1)",
-                "Selected Material": mat_aluminum.nickname if mat_aluminum else "N/A",
-                "Unit Cost": mat_aluminum.cost if mat_aluminum else 0,
-                "Calculation": f"Option: {aluminum_option} - " + (
-                    "(Perimeter + 0.5×Horizontal)" if aluminum_option == "head_retainer" else "(Perimeter + Horizontal)") + f" × Cost / {yield_cat1}",
-                "Cost ($)": cost_aluminum
+                "Category": "Extrusions (Cat 1)",
+                "Selected Material": mat_extrusions.nickname if mat_extrusions else "N/A",
+                "Unit Cost": mat_extrusions.cost if mat_extrusions else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_extrusions}",
+                "Cost ($)": cost_extrusions
+            },
+            {
+                "Category": "Retainer (Cat 1)",
+                "Selected Material": (
+                    mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
+                "Unit Cost": (mat_retainer.cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
+                "Calculation": (
+                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_retainer}"
+                    if retainer_option == "head_retainer"
+                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_retainer}"
+                          if retainer_option == "head_and_sill"
+                          else "No Retainer")),
+                "Cost ($)": cost_retainer
             },
             {
                 "Category": "Glazing Spline (Cat 2)",
@@ -397,25 +436,37 @@ def materials():
                 "Cost ($)": cost_dual_lock
             },
             {
-                "Category": "Foam Baffle (Cat 6)",
-                "Selected Material": mat_foam_baffle.nickname if mat_foam_baffle else "N/A",
-                "Unit Cost": mat_foam_baffle.cost if mat_foam_baffle else 0,
-                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat6}",
-                "Cost ($)": cost_foam_baffle
+                "Category": "Foam Baffle Top/Head (Cat 6)",
+                "Selected Material": mat_foam_baffle_top.nickname if mat_foam_baffle_top else "N/A",
+                "Unit Cost": mat_foam_baffle_top.cost if mat_foam_baffle_top else 0,
+                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat6}",
+                "Cost ($)": cost_foam_baffle_top
+            },
+            {
+                "Category": "Foam Baffle Bottom/Sill (Cat 6)",
+                "Selected Material": mat_foam_baffle_bottom.nickname if mat_foam_baffle_bottom else "N/A",
+                "Unit Cost": mat_foam_baffle_bottom.cost if mat_foam_baffle_bottom else 0,
+                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat6}",
+                "Cost ($)": cost_foam_baffle_bottom
             },
             {
                 "Category": "Glass Protection (Cat 7)",
                 "Selected Material": mat_glass_protection.nickname if mat_glass_protection else "N/A",
                 "Unit Cost": mat_glass_protection.cost if mat_glass_protection else 0,
-                "Calculation": f"Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat7}",
+                "Calculation": (f"Total Area {total_area:.2f} × Cost / {yield_cat7}"
+                                if glass_protection_side == "one"
+                                else (f"Total Area {total_area:.2f} × Cost × 2 / {yield_cat7}"
+                                      if glass_protection_side == "double"
+                                      else "No Film")),
                 "Cost ($)": cost_glass_protection
             },
             {
                 "Category": "Tape (Cat 10)",
                 "Selected Material": mat_tape.nickname if mat_tape else "N/A",
                 "Unit Cost": mat_tape.cost if mat_tape else 0,
-                "Calculation": f"Option: {tape_option} - " + (
-                    "(Half Horizontal)" if tape_option == "head_retainer" else "(Full Horizontal)") + f" × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat10}",
+                "Calculation": f"Option: {request.form.get('tape_option')} - " + (
+                    "(Half Horizontal)" if request.form.get(
+                        'tape_option') == "head_retainer" else "(Full Horizontal)") + f" × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat10}",
                 "Cost ($)": cost_tape
             },
             {
@@ -426,11 +477,12 @@ def materials():
                 "Cost ($)": cost_head_retainers
             }
         ]
-        # Add extra columns: $ per SF and % Total Cost for each item
+        # Add extra columns: $ per SF and % Total Cost
         for item in materials_list:
             cost = item["Cost ($)"]
             item["$ per SF"] = cost / total_area if total_area > 0 else 0
-            item["% Total Cost"] = (cost / total_material_cost * 100) if total_material_cost > 0 else 0
+            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost",
+                                                                                             0) > 0 else 0
 
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
@@ -467,7 +519,8 @@ def materials():
         return options
 
     options_glass = generate_options(materials_glass)
-    options_aluminum = generate_options(materials_aluminum)
+    options_extrusions = generate_options(materials_extrusions)
+    options_retainer = generate_options(materials_extrusions)  # Using same as extrusions for retainer choices
     options_glazing = generate_options(materials_glazing)
     options_gaskets = generate_options(materials_gaskets)
     options_corner_keys = generate_options(materials_corner_keys)
@@ -495,17 +548,26 @@ def materials():
                   {options_glass}
                </select>
 
-               <h3>Aluminum (Category 1)</h3>
-               <label for="yield_cat1">Yield for Aluminum:</label>
-               <input type="number" step="0.01" id="yield_cat1" name="yield_cat1" value="0.75" required>
-               <label for="aluminum_option">Aluminum Option:</label>
-               <select name="aluminum_option" id="aluminum_option" required>
-                  <option value="head_retainer">Head Retainer (Total Perimeter + 0.5 × Total Horizontal) / Yield</option>
-                  <option value="head_and_sill">Head and Sill (Total Perimeter + Total Horizontal) / Yield</option>
+               <h3>Extrusions (Category 1)</h3>
+               <label for="yield_extrusions">Yield for Extrusions:</label>
+               <input type="number" step="0.01" id="yield_extrusions" name="yield_extrusions" value="0.75" required>
+               <label for="material_extrusions">Extrusions - Total Perimeter (ft) × Cost / Yield:</label>
+               <select name="material_extrusions" id="material_extrusions" required>
+                  {options_extrusions}
                </select>
-               <label for="material_aluminum">Aluminum (Category 1):</label>
-               <select name="material_aluminum" id="material_aluminum" required>
-                  {options_aluminum}
+
+               <h3>Retainer (Category 1)</h3>
+               <label for="yield_retainer">Yield for Retainer:</label>
+               <input type="number" step="0.01" id="yield_retainer" name="yield_retainer" value="0.75" required>
+               <label for="retainer_option">Retainer Option:</label>
+               <select name="retainer_option" id="retainer_option" required>
+                  <option value="head_retainer">Head Retainer</option>
+                  <option value="head_and_sill">Head + Sill Retainer</option>
+                  <option value="no_retainer">No Retainer</option>
+               </select>
+               <label for="material_retainer">Retainer - (Cost calculation based on option):</label>
+               <select name="material_retainer" id="material_retainer" required>
+                  {options_retainer}
                </select>
 
                <h3>Glazing Spline (Category 2)</h3>
@@ -540,18 +602,30 @@ def materials():
                   {options_dual_lock}
                </select>
 
-               <h3>Foam Baffle (Category 6)</h3>
+               <h3>Foam Baffle Top/Head (Category 6)</h3>
                <label for="yield_cat6">Yield for Foam Baffle:</label>
                <input type="number" step="0.01" id="yield_cat6" name="yield_cat6" value="0.91" required>
-               <label for="material_foam_baffle">Foam Baffle - Total Horizontal (ft) × Cost / Yield:</label>
+               <label for="material_foam_baffle">Foam Baffle Top/Head - Select Material:</label>
                <select name="material_foam_baffle" id="material_foam_baffle" required>
+                  {options_foam_baffle}
+               </select>
+
+               <h3>Foam Baffle Bottom/Sill (Category 6)</h3>
+               <label for="material_foam_baffle_bottom">Foam Baffle Bottom/Sill - Select Material:</label>
+               <select name="material_foam_baffle_bottom" id="material_foam_baffle_bottom" required>
                   {options_foam_baffle}
                </select>
 
                <h3>Glass Protection (Category 7)</h3>
                <label for="yield_cat7">Yield for Glass Protection:</label>
                <input type="number" step="0.01" id="yield_cat7" name="yield_cat7" value="0.91" required>
-               <label for="material_glass_protection">Glass Protection - Total Horizontal (ft) × Cost / Yield:</label>
+               <label for="glass_protection_side">Glass Protection Side:</label>
+               <select name="glass_protection_side" id="glass_protection_side" required>
+                  <option value="one">One Sided</option>
+                  <option value="double">Double Sided</option>
+                  <option value="none">No Film</option>
+               </select>
+               <label for="material_glass_protection">Glass Protection - Total Area (sq ft) × Cost / Yield (or ×2 if double sided):</label>
                <select name="material_glass_protection" id="material_glass_protection" required>
                   {options_glass_protection}
                </select>
@@ -561,8 +635,8 @@ def materials():
                <input type="number" step="0.01" id="yield_cat10" name="yield_cat10" value="0.91" required>
                <label for="tape_option">Tape Option:</label>
                <select name="tape_option" id="tape_option" required>
-                  <option value="head_retainer">Head Retainer (Half Horizontal) / Yield</option>
-                  <option value="head_sill">Head+Sill (Full Horizontal) / Yield</option>
+                  <option value="head_retainer">Head Retainer (Half Horizontal)</option>
+                  <option value="head_sill">Head+Sill (Full Horizontal)</option>
                </select>
                <label for="material_tape">Tape - Cost calculated / Yield:</label>
                <select name="material_tape" id="material_tape" required>
@@ -594,7 +668,7 @@ def materials():
 def other_costs():
     cp = get_current_project()
     material_cost = cp.get('material_total_cost', 0)
-    total_quantity = cp.get('total_quantity', 0)
+    total_quantity = cp.get('swr_total_quantity', 0)
     if request.method == 'POST':
         num_trucks = float(request.form.get('num_trucks', 0))
         cost_per_truck = float(request.form.get('truck_cost', 0))
@@ -629,6 +703,7 @@ def other_costs():
         sales_cost = (cost_audit + cost_design + cost_thermal_stress + cost_thermal_performance +
                       cost_mockup + cost_window + cost_energy + cost_cost_benefit + cost_utility)
 
+        total_truck_cost = num_trucks * cost_per_truck
         additional_total = total_truck_cost + installation_cost + equipment_cost + travel_cost + sales_cost
         grand_total = material_cost + additional_total
 
@@ -746,7 +821,7 @@ def other_costs():
 
 
 # =========================
-# MARGINS PAGE (with Dynamic $/SF Calculation)
+# MARGINS PAGE (with Dynamic $/SF Calculation and Navigation Buttons)
 # =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
@@ -828,7 +903,9 @@ def margins():
                  <input type="hidden" name="csv_data" value='{csv_output}'>
                  <button type="submit">Download Final Summary CSV</button>
                </form>
-               <button onclick="window.location.href='/'">Start New Project</button>
+               <button style="font-size:0.8em; margin-top:5px;" onclick="window.location.href='/other_costs'">Back to Other Costs</button>
+               <button style="font-size:0.8em; margin-top:5px;" onclick="window.location.href='/materials'">Back to SWR Materials</button>
+               <button style="font-size:0.8em; margin-top:5px;" onclick="window.location.href='/'">Start New Project</button>
              </div>
              <div class="container">
                <h3>Dynamic Cost per SF</h3>
