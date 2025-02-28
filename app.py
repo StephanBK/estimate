@@ -226,7 +226,7 @@ def summary():
 
 
 # =========================
-# MATERIALS PAGE (with Updated Aluminum Split and Foam Baffle Split into 2 Items)
+# MATERIALS PAGE (with Updated Aluminum Split, Foam Baffle Split, and Tape Option renamed)
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
@@ -234,23 +234,24 @@ def materials():
     try:
         # Glass from Category 15
         materials_glass = Material.query.filter_by(category=15).all()
-        # Extrusions and Retainer from Category 1
+        # Extrusions and Retainer from Category 1 (same pool)
         materials_extrusions = Material.query.filter_by(category=1).all()
         # Other categories remain unchanged
         materials_glazing = Material.query.filter_by(category=2).all()
         materials_gaskets = Material.query.filter_by(category=3).all()
         materials_corner_keys = Material.query.filter_by(category=4).all()
         materials_dual_lock = Material.query.filter_by(category=5).all()
-        # Foam Baffle now: Two separate items from Category 6 – one for Top/Head and one for Bottom/Sill
+        # Foam Baffle: Two separate items from Category 6 – one for Top/Head and one for Bottom/Sill
         materials_foam_baffle = Material.query.filter_by(category=6).all()
         materials_glass_protection = Material.query.filter_by(category=7).all()
+        # For Tape, we keep the original name "Tape" (Category 10)
         materials_tape = Material.query.filter_by(category=10).all()
         materials_head_retainers = Material.query.filter_by(category=17).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
     if request.method == 'POST':
-        # Get yield factors for each category
+        # Retrieve yield factors
         try:
             yield_cat15 = float(request.form.get('yield_cat15', 0.97))
         except:
@@ -296,7 +297,7 @@ def materials():
         except:
             yield_cat17 = 0.91
 
-        # For Extrusions and Retainer (from Category 1)
+        # For Extrusions and Retainer (Category 1)
         selected_extrusions = request.form.get('material_extrusions')
         retainer_option = request.form.get('retainer_option')
         selected_retainer = request.form.get('material_retainer')
@@ -309,9 +310,11 @@ def materials():
         selected_gaskets = request.form.get('material_gaskets')
         selected_corner_keys = request.form.get('material_corner_keys')
         selected_dual_lock = request.form.get('material_dual_lock')
-        # For Foam Baffle, now use two separate fields:
+        # Foam Baffle selections:
         selected_foam_baffle_top = request.form.get('material_foam_baffle')
         selected_foam_baffle_bottom = request.form.get('material_foam_baffle_bottom')
+        # For Tape, keep the label "Tape" but the dropdown will be titled "Retainer Attachment Option" with three choices.
+        retainer_attachment_option = request.form.get('retainer_attachment_option')
         selected_tape = request.form.get('material_tape')
         selected_head_retainers = request.form.get('material_head_retainers')
 
@@ -321,6 +324,7 @@ def materials():
         mat_glazing = Material.query.get(selected_glazing) if selected_glazing else None
         mat_gaskets = Material.query.get(selected_gaskets) if selected_gaskets else None
         mat_corner_keys = Material.query.get(selected_corner_keys) if selected_corner_keys else None
+        # For Dual Lock, cost = Total quantity * cost / yield
         mat_dual_lock = Material.query.get(selected_dual_lock) if selected_dual_lock else None
         mat_foam_baffle_top = Material.query.get(selected_foam_baffle_top) if selected_foam_baffle_top else None
         mat_foam_baffle_bottom = Material.query.get(
@@ -347,7 +351,7 @@ def materials():
         cost_glazing = (total_perimeter * mat_glazing.cost) / yield_cat2 if mat_glazing else 0
         cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_cat3 if mat_gaskets else 0
         cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_cat4 if mat_corner_keys else 0
-        cost_dual_lock = (total_vertical * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
+        cost_dual_lock = (total_quantity * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
         if mat_foam_baffle_top:
             cost_foam_baffle_top = (0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6
         else:
@@ -364,10 +368,14 @@ def materials():
         else:
             cost_glass_protection = (total_area * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
         if mat_tape:
-            if request.form.get('tape_option') == 'head_retainer':
+            if retainer_attachment_option == 'head_retainer':
                 cost_tape = ((total_horizontal / 2) * mat_tape.cost) / yield_cat10
-            else:
+            elif retainer_attachment_option == 'head_sill':
                 cost_tape = (total_horizontal * mat_tape.cost) / yield_cat10
+            elif retainer_attachment_option == 'no_tape':
+                cost_tape = 0
+            else:
+                cost_tape = 0
         else:
             cost_tape = 0
         cost_head_retainers = ((
@@ -432,7 +440,7 @@ def materials():
                 "Category": "Dual Lock (Cat 5)",
                 "Selected Material": mat_dual_lock.nickname if mat_dual_lock else "N/A",
                 "Unit Cost": mat_dual_lock.cost if mat_dual_lock else 0,
-                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / {yield_cat5}",
+                "Calculation": f"Total Quantity {total_quantity:.2f} × Cost / {yield_cat5}",
                 "Cost ($)": cost_dual_lock
             },
             {
@@ -464,9 +472,10 @@ def materials():
                 "Category": "Tape (Cat 10)",
                 "Selected Material": mat_tape.nickname if mat_tape else "N/A",
                 "Unit Cost": mat_tape.cost if mat_tape else 0,
-                "Calculation": f"Option: {request.form.get('tape_option')} - " + (
-                    "(Half Horizontal)" if request.form.get(
-                        'tape_option') == "head_retainer" else "(Full Horizontal)") + f" × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat10}",
+                "Calculation": f"Retainer Attachment Option: " + (
+                    "(Head Retainer - Half Horizontal)" if retainer_attachment_option == "head_retainer"
+                    else ("(Head+Sill - Full Horizontal)" if retainer_attachment_option == "head_sill"
+                          else "No Tape")),
                 "Cost ($)": cost_tape
             },
             {
@@ -477,7 +486,7 @@ def materials():
                 "Cost ($)": cost_head_retainers
             }
         ]
-        # Add extra columns: $ per SF and % Total Cost
+        # Add extra columns: $ per SF and % Total Cost for each item
         for item in materials_list:
             cost = item["Cost ($)"]
             item["$ per SF"] = cost / total_area if total_area > 0 else 0
@@ -520,7 +529,7 @@ def materials():
 
     options_glass = generate_options(materials_glass)
     options_extrusions = generate_options(materials_extrusions)
-    options_retainer = generate_options(materials_extrusions)  # Using same as extrusions for retainer choices
+    options_retainer = generate_options(materials_extrusions)  # Using same list for retainer choices
     options_glazing = generate_options(materials_glazing)
     options_gaskets = generate_options(materials_gaskets)
     options_corner_keys = generate_options(materials_corner_keys)
@@ -597,7 +606,7 @@ def materials():
                <h3>Dual Lock (Category 5)</h3>
                <label for="yield_cat5">Yield for Dual Lock:</label>
                <input type="number" step="0.01" id="yield_cat5" name="yield_cat5" value="0.91" required>
-               <label for="material_dual_lock">Dual Lock - Total Vertical (ft) × Cost / Yield:</label>
+               <label for="material_dual_lock">Dual Lock - Total Quantity × Cost / Yield:</label>
                <select name="material_dual_lock" id="material_dual_lock" required>
                   {options_dual_lock}
                </select>
@@ -633,12 +642,13 @@ def materials():
                <h3>Tape (Category 10)</h3>
                <label for="yield_cat10">Yield for Tape:</label>
                <input type="number" step="0.01" id="yield_cat10" name="yield_cat10" value="0.91" required>
-               <label for="tape_option">Tape Option:</label>
-               <select name="tape_option" id="tape_option" required>
+               <label for="retainer_attachment_option">Retainer Attachment Option:</label>
+               <select name="retainer_attachment_option" id="retainer_attachment_option" required>
                   <option value="head_retainer">Head Retainer (Half Horizontal)</option>
                   <option value="head_sill">Head+Sill (Full Horizontal)</option>
+                  <option value="no_tape">No Tape</option>
                </select>
-               <label for="material_tape">Tape - Cost calculated / Yield:</label>
+               <label for="material_tape">Tape Material - Cost calculated / Yield:</label>
                <select name="material_tape" id="material_tape" required>
                   {options_tape}
                </select>
