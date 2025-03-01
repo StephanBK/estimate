@@ -43,7 +43,7 @@ class Material(db.Model):
     supplier = db.Column(db.String(100))
 
 
-# Helper: Recursively convert NumPy int64 to native types
+# Helper: Recursively convert NumPy int64 to native Python types
 def make_serializable(obj):
     if isinstance(obj, dict):
         return {k: make_serializable(v) for k, v in obj.items()}
@@ -55,7 +55,7 @@ def make_serializable(obj):
         return obj
 
 
-# Helper: get or initialize current_project in session
+# Helper: Get or initialize current_project in session
 def get_current_project():
     cp = session.get("current_project")
     if cp is None:
@@ -64,7 +64,7 @@ def get_current_project():
     return cp
 
 
-# Helper: save current_project after converting to serializable types
+# Helper: Save current_project to session after converting to serializable types
 def save_current_project(cp):
     session["current_project"] = make_serializable(cp)
 
@@ -72,28 +72,34 @@ def save_current_project(cp):
 # Path to the CSV template
 TEMPLATE_PATH = 'estimation_template_template.csv'
 
-# Common CSS for consistent styling
+# Common CSS with fixed label widths for margins and consistent button groups.
+# Also, the .btn-download class is now larger.
 common_css = """
     @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600&display=swap');
     body { background-color: #121212; color: #ffffff; font-family: 'Exo 2', sans-serif; padding: 20px; }
     .container { background-color: #1e1e1e; padding: 20px; border-radius: 10px; max-width: 900px; margin: auto; box-shadow: 0 0 15px rgba(0,128,128,0.5); }
-    input, select, button { width: 100%; padding: 10px; margin: 5px 0; border: none; border-radius: 5px; background-color: #333; color: #fff; }
+    input, select, button { padding: 10px; margin: 5px 0; border: none; border-radius: 5px; background-color: #333; color: #fff; width: 100%; }
     button { background-color: #008080; cursor: pointer; transition: background-color 0.3s ease; }
     button:hover { background-color: #00a0a0; }
     a { color: #00a0a0; text-decoration: none; font-weight: 600; }
     a:hover { text-decoration: underline; }
     h2, p { text-align: center; }
-    .summary-table, .data-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    .summary-table th, .summary-table td, .data-table th, .data-table td { border: 1px solid #444; padding: 8px; text-align: center; }
+    .summary-table, .data-table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
+    .summary-table th, .summary-table td, .data-table th, .data-table td { border: 1px solid #444; padding: 8px; text-align: center; word-wrap: break-word; }
     .summary-table th { background-color: #008080; color: white; }
     .data-table th { background-color: #00a0a0; color: white; }
     tr:nth-child(even) { background-color: #1e1e1f; }
     tr:nth-child(odd) { background-color: #2b2b2b; }
+    .margin-row { display: flex; align-items: center; margin-bottom: 10px; }
+    .margin-row label { width: 180px; }
+    .btn-group { display: flex; justify-content: space-between; margin-top: 10px; }
+    .btn { min-width: 140px; }
+    .btn-download { font-size: 1.5em; padding: 20px 40px; display: block; margin: 20px auto; }
 """
 
 
 # =========================
-# INDEX PAGE
+# INDEX PAGE (Row-by-row layout)
 # =========================
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -101,6 +107,7 @@ def index():
     if request.method == 'POST':
         cp['project_name'] = request.form['project_name']
         cp['project_number'] = request.form['project_number']
+        cp['swr_system'] = request.form['swr_system']
         file = request.files['file']
         if file:
             file_path = os.path.join('uploads', file.filename)
@@ -119,15 +126,31 @@ def index():
          <div class="container">
             <h2>Project Input Form</h2>
             <form method="POST" enctype="multipart/form-data">
-               <label for="project_name">Project Name:</label>
-               <input type="text" id="project_name" name="project_name" required>
-               <label for="project_number">Project Number:</label>
-               <input type="text" id="project_number" name="project_number" required>
-               <label for="file">Upload Filled Template (CSV):</label>
-               <input type="file" id="file" name="file" accept=".csv" required>
-               <button type="submit">Submit</button>
+               <div>
+                  <label for="project_name">Project Name:</label>
+                  <input type="text" id="project_name" name="project_name" required>
+               </div>
+               <div>
+                  <label for="project_number">Project Number:</label>
+                  <input type="text" id="project_number" name="project_number" required>
+               </div>
+               <div>
+                  <label for="swr_system">SWR System:</label>
+                  <select name="swr_system" id="swr_system" style="width:200px;" required>
+                      <option value="SWR">SWR</option>
+                      <option value="SWR-IG">SWR-IG</option>
+                      <option value="SWR-VIG">SWR-VIG</option>
+                  </select>
+               </div>
+               <div>
+                  <label for="file">Upload Filled Template (CSV):</label>
+                  <input type="file" id="file" name="file" accept=".csv" required>
+               </div>
+               <div class="btn-group">
+                 <button type="button" class="btn" onclick="window.location.href='/download-template'">Download Template CSV</button>
+                 <button type="submit" class="btn">Submit</button>
+               </div>
             </form>
-            <p><a href="/download-template">Download Template CSV</a></p>
          </div>
       </body>
     </html>
@@ -216,8 +239,10 @@ def summary():
               <tr><td>Total Vertical (ft)</td><td>{igr_vertical:.2f}</td></tr>
               <tr><td>Total Horizontal (ft)</td><td>{igr_horizontal:.2f}</td></tr>
             </table>
-            <button onclick="window.location.href='/'">Start New Project</button>
-            <button onclick="window.location.href='/materials'">Next: SWR Materials</button>
+            <div class="btn-group">
+              <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
+              <button type="button" class="btn" onclick="window.location.href='/materials'">Next: SWR Materials</button>
+            </div>
          </div>
       </body>
     </html>
@@ -226,44 +251,35 @@ def summary():
 
 
 # =========================
-# MATERIALS PAGE (with Updated Aluminum Split, Foam Baffle Split, and Tape Option renamed)
+# MATERIALS PAGE (Improved Framed Layout)
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
     cp = get_current_project()
     try:
-        # Glass from Category 15
         materials_glass = Material.query.filter_by(category=15).all()
-        # Extrusions and Retainer from Category 1 (same pool)
-        materials_extrusions = Material.query.filter_by(category=1).all()
-        # Other categories remain unchanged
+        materials_aluminum = Material.query.filter_by(category=1).all()
         materials_glazing = Material.query.filter_by(category=2).all()
         materials_gaskets = Material.query.filter_by(category=3).all()
         materials_corner_keys = Material.query.filter_by(category=4).all()
         materials_dual_lock = Material.query.filter_by(category=5).all()
-        # Foam Baffle: Two separate items from Category 6 – one for Top/Head and one for Bottom/Sill
         materials_foam_baffle = Material.query.filter_by(category=6).all()
         materials_glass_protection = Material.query.filter_by(category=7).all()
-        # For Tape, we keep the original name "Tape" (Category 10)
         materials_tape = Material.query.filter_by(category=10).all()
         materials_head_retainers = Material.query.filter_by(category=17).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
     if request.method == 'POST':
-        # Retrieve yield factors
+        # Get yield values (with defaults)
         try:
             yield_cat15 = float(request.form.get('yield_cat15', 0.97))
         except:
             yield_cat15 = 0.97
         try:
-            yield_extrusions = float(request.form.get('yield_extrusions', 0.75))
+            yield_aluminum = float(request.form.get('yield_aluminum', 0.75))
         except:
-            yield_extrusions = 0.75
-        try:
-            yield_retainer = float(request.form.get('yield_retainer', 0.75))
-        except:
-            yield_retainer = 0.75
+            yield_aluminum = 0.75
         try:
             yield_cat2 = float(request.form.get('yield_cat2', 0.91))
         except:
@@ -297,40 +313,34 @@ def materials():
         except:
             yield_cat17 = 0.91
 
-        # For Extrusions and Retainer (Category 1)
-        selected_extrusions = request.form.get('material_extrusions')
+        # Retrieve selected materials and options
+        selected_glass = request.form.get('material_glass')
+        selected_aluminum = request.form.get('material_aluminum')
         retainer_option = request.form.get('retainer_option')
         selected_retainer = request.form.get('material_retainer')
-        # For Glass Protection
-        glass_protection_side = request.form.get('glass_protection_side')
-
-        # Other selections
-        selected_glass = request.form.get('material_glass')
         selected_glazing = request.form.get('material_glazing')
         selected_gaskets = request.form.get('material_gaskets')
         selected_corner_keys = request.form.get('material_corner_keys')
         selected_dual_lock = request.form.get('material_dual_lock')
-        # Foam Baffle selections:
         selected_foam_baffle_top = request.form.get('material_foam_baffle')
         selected_foam_baffle_bottom = request.form.get('material_foam_baffle_bottom')
-        # For Tape, keep the label "Tape" but the dropdown will be titled "Retainer Attachment Option" with three choices.
+        glass_protection_side = request.form.get('glass_protection_side')
+        selected_glass_protection = request.form.get('material_glass_protection')
         retainer_attachment_option = request.form.get('retainer_attachment_option')
         selected_tape = request.form.get('material_tape')
         selected_head_retainers = request.form.get('material_head_retainers')
 
         mat_glass = Material.query.get(selected_glass) if selected_glass else None
-        mat_extrusions = Material.query.get(selected_extrusions) if selected_extrusions else None
+        mat_aluminum = Material.query.get(selected_aluminum) if selected_aluminum else None
         mat_retainer = Material.query.get(selected_retainer) if selected_retainer else None
         mat_glazing = Material.query.get(selected_glazing) if selected_glazing else None
         mat_gaskets = Material.query.get(selected_gaskets) if selected_gaskets else None
         mat_corner_keys = Material.query.get(selected_corner_keys) if selected_corner_keys else None
-        # For Dual Lock, cost = Total quantity * cost / yield
         mat_dual_lock = Material.query.get(selected_dual_lock) if selected_dual_lock else None
         mat_foam_baffle_top = Material.query.get(selected_foam_baffle_top) if selected_foam_baffle_top else None
         mat_foam_baffle_bottom = Material.query.get(
             selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
-        mat_glass_protection = Material.query.get(request.form.get('material_glass_protection')) if request.form.get(
-            'material_glass_protection') else None
+        mat_glass_protection = Material.query.get(selected_glass_protection) if selected_glass_protection else None
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
         mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
 
@@ -340,33 +350,32 @@ def materials():
         total_horizontal = cp.get('swr_total_horizontal_ft', 0)
         total_quantity = cp.get('swr_total_quantity', 0)
 
+        # Cost calculations:
         cost_glass = (total_area * mat_glass.cost) / yield_cat15 if mat_glass else 0
-        cost_extrusions = (total_perimeter * mat_extrusions.cost) / yield_extrusions if mat_extrusions else 0
+        cost_aluminum = (total_perimeter * mat_aluminum.cost) / yield_aluminum if mat_aluminum else 0
         if retainer_option == "head_retainer":
-            cost_retainer = (0.5 * total_horizontal * mat_retainer.cost) / yield_retainer if mat_retainer else 0
+            cost_retainer = (0.5 * total_horizontal * mat_retainer.cost) / yield_aluminum if mat_retainer else 0
         elif retainer_option == "head_and_sill":
-            cost_retainer = (total_horizontal * mat_retainer.cost * yield_retainer) if mat_retainer else 0
+            cost_retainer = (total_horizontal * mat_retainer.cost * yield_aluminum) if mat_retainer else 0
         else:
             cost_retainer = 0
         cost_glazing = (total_perimeter * mat_glazing.cost) / yield_cat2 if mat_glazing else 0
         cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_cat3 if mat_gaskets else 0
         cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_cat4 if mat_corner_keys else 0
         cost_dual_lock = (total_quantity * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
-        if mat_foam_baffle_top:
-            cost_foam_baffle_top = (0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6
-        else:
-            cost_foam_baffle_top = 0
-        if mat_foam_baffle_bottom:
-            cost_foam_baffle_bottom = (0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6
-        else:
-            cost_foam_baffle_bottom = 0
-        if glass_protection_side == "double":
+        cost_foam_baffle_top = (
+                                           0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6 if mat_foam_baffle_top else 0
+        cost_foam_baffle_bottom = (
+                                              0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6 if mat_foam_baffle_bottom else 0
+        if glass_protection_side == "one":
+            cost_glass_protection = (total_area * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
+        elif glass_protection_side == "double":
             cost_glass_protection = (
                                                 total_area * mat_glass_protection.cost * 2) / yield_cat7 if mat_glass_protection else 0
         elif glass_protection_side == "none":
             cost_glass_protection = 0
         else:
-            cost_glass_protection = (total_area * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
+            cost_glass_protection = 0
         if mat_tape:
             if retainer_attachment_option == 'head_retainer':
                 cost_tape = ((total_horizontal / 2) * mat_tape.cost) / yield_cat10
@@ -381,12 +390,12 @@ def materials():
         cost_head_retainers = ((
                                            total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
 
-        total_material_cost = (cost_glass + cost_extrusions + cost_retainer + cost_glazing + cost_gaskets +
+        total_material_cost = (cost_glass + cost_aluminum + cost_retainer + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle_top + cost_foam_baffle_bottom +
                                cost_glass_protection + cost_tape + cost_head_retainers)
         cp['material_total_cost'] = total_material_cost
 
-        # Build the itemized list with extra columns: $ per SF and % Total Cost
+        # Build an itemized list with two extra columns: "$ per SF" and "% Total Cost"
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -397,10 +406,10 @@ def materials():
             },
             {
                 "Category": "Extrusions (Cat 1)",
-                "Selected Material": mat_extrusions.nickname if mat_extrusions else "N/A",
-                "Unit Cost": mat_extrusions.cost if mat_extrusions else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_extrusions}",
-                "Cost ($)": cost_extrusions
+                "Selected Material": mat_aluminum.nickname if mat_aluminum else "N/A",
+                "Unit Cost": mat_aluminum.cost if mat_aluminum else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_aluminum}",
+                "Cost ($)": cost_aluminum
             },
             {
                 "Category": "Retainer (Cat 1)",
@@ -408,9 +417,9 @@ def materials():
                     mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
                 "Unit Cost": (mat_retainer.cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
                 "Calculation": (
-                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_retainer}"
+                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_aluminum}"
                     if retainer_option == "head_retainer"
-                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_retainer}"
+                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_aluminum}"
                           if retainer_option == "head_and_sill"
                           else "No Retainer")),
                 "Cost ($)": cost_retainer
@@ -474,8 +483,7 @@ def materials():
                 "Unit Cost": mat_tape.cost if mat_tape else 0,
                 "Calculation": f"Retainer Attachment Option: " + (
                     "(Head Retainer - Half Horizontal)" if retainer_attachment_option == "head_retainer"
-                    else ("(Head+Sill - Full Horizontal)" if retainer_attachment_option == "head_sill"
-                          else "No Tape")),
+                    else ("(Head+Sill - Full Horizontal)" if retainer_attachment_option == "head_sill" else "No Tape")),
                 "Cost ($)": cost_tape
             },
             {
@@ -486,7 +494,7 @@ def materials():
                 "Cost ($)": cost_head_retainers
             }
         ]
-        # Add extra columns: $ per SF and % Total Cost for each item
+        # Add two extra columns: "$ per SF" and "% Total Cost"
         for item in materials_list:
             cost = item["Cost ($)"]
             item["$ per SF"] = cost / total_area if total_area > 0 else 0
@@ -496,6 +504,7 @@ def materials():
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
 
+        # Build HTML table for display
         table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th><th>$ per SF</th><th>% Total Cost</th></tr>"
         for item in materials_list:
             table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td><td>{item['$ per SF']:.2f}</td><td>{item['% Total Cost']:.2f}</td></tr>"
@@ -514,8 +523,10 @@ def materials():
              <div class="container">
                <h2>SWR Material Cost Summary</h2>
                {table_html}
-               <button onclick="window.location.href='/other_costs'">Next: Enter Other Costs</button>
-               <button onclick="window.location.href='/'">Start New Project</button>
+               <div class="btn-group">
+                 <button type="button" class="btn" onclick="window.location.href='/materials'">Back: Edit Materials</button>
+                 <button type="button" class="btn" onclick="window.location.href='/other_costs'">Next: Other Costs</button>
+               </div>
              </div>
            </body>
          </html>
@@ -527,19 +538,7 @@ def materials():
             options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
         return options
 
-    options_glass = generate_options(materials_glass)
-    options_extrusions = generate_options(materials_extrusions)
-    options_retainer = generate_options(materials_extrusions)  # Using same list for retainer choices
-    options_glazing = generate_options(materials_glazing)
-    options_gaskets = generate_options(materials_gaskets)
-    options_corner_keys = generate_options(materials_corner_keys)
-    options_dual_lock = generate_options(materials_dual_lock)
-    options_foam_baffle = generate_options(materials_foam_baffle)
-    options_glass_protection = generate_options(materials_glass_protection)
-    options_tape = generate_options(materials_tape)
-    options_head_retainers = generate_options(materials_head_retainers)
-
-    return f"""
+    form_html = f"""
     <html>
       <head>
          <title>SWR Materials</title>
@@ -549,121 +548,147 @@ def materials():
          <div class="container">
             <h2>Select SWR Materials</h2>
             <form method="POST">
-               <h3>Glass (Category 15)</h3>
-               <label for="yield_cat15">Yield for Glass:</label>
-               <input type="number" step="0.01" id="yield_cat15" name="yield_cat15" value="0.97" required>
-               <label for="material_glass">Glass - Total Area (sq ft) × Cost / Yield:</label>
-               <select name="material_glass" id="material_glass" required>
-                  {options_glass}
-               </select>
-
-               <h3>Extrusions (Category 1)</h3>
-               <label for="yield_extrusions">Yield for Extrusions:</label>
-               <input type="number" step="0.01" id="yield_extrusions" name="yield_extrusions" value="0.75" required>
-               <label for="material_extrusions">Extrusions - Total Perimeter (ft) × Cost / Yield:</label>
-               <select name="material_extrusions" id="material_extrusions" required>
-                  {options_extrusions}
-               </select>
-
-               <h3>Retainer (Category 1)</h3>
-               <label for="yield_retainer">Yield for Retainer:</label>
-               <input type="number" step="0.01" id="yield_retainer" name="yield_retainer" value="0.75" required>
-               <label for="retainer_option">Retainer Option:</label>
-               <select name="retainer_option" id="retainer_option" required>
-                  <option value="head_retainer">Head Retainer</option>
-                  <option value="head_and_sill">Head + Sill Retainer</option>
-                  <option value="no_retainer">No Retainer</option>
-               </select>
-               <label for="material_retainer">Retainer - (Cost calculation based on option):</label>
-               <select name="material_retainer" id="material_retainer" required>
-                  {options_retainer}
-               </select>
-
-               <h3>Glazing Spline (Category 2)</h3>
-               <label for="yield_cat2">Yield for Glazing Spline:</label>
-               <input type="number" step="0.01" id="yield_cat2" name="yield_cat2" value="0.91" required>
-               <label for="material_glazing">Glazing Spline - Total Perimeter (ft) × Cost / Yield:</label>
-               <select name="material_glazing" id="material_glazing" required>
-                  {options_glazing}
-               </select>
-
-               <h3>Gaskets (Category 3)</h3>
-               <label for="yield_cat3">Yield for Gaskets:</label>
-               <input type="number" step="0.01" id="yield_cat3" name="yield_cat3" value="0.91" required>
-               <label for="material_gaskets">Gaskets - Total Vertical (ft) × Cost / Yield:</label>
-               <select name="material_gaskets" id="material_gaskets" required>
-                  {options_gaskets}
-               </select>
-
-               <h3>Corner Keys (Category 4)</h3>
-               <label for="yield_cat4">Yield for Corner Keys:</label>
-               <input type="number" step="0.01" id="yield_cat4" name="yield_cat4" value="0.91" required>
-               <label for="material_corner_keys">Corner Keys - Total Quantity × 4 × Cost / Yield:</label>
-               <select name="material_corner_keys" id="material_corner_keys" required>
-                  {options_corner_keys}
-               </select>
-
-               <h3>Dual Lock (Category 5)</h3>
-               <label for="yield_cat5">Yield for Dual Lock:</label>
-               <input type="number" step="0.01" id="yield_cat5" name="yield_cat5" value="0.91" required>
-               <label for="material_dual_lock">Dual Lock - Total Quantity × Cost / Yield:</label>
-               <select name="material_dual_lock" id="material_dual_lock" required>
-                  {options_dual_lock}
-               </select>
-
-               <h3>Foam Baffle Top/Head (Category 6)</h3>
-               <label for="yield_cat6">Yield for Foam Baffle:</label>
-               <input type="number" step="0.01" id="yield_cat6" name="yield_cat6" value="0.91" required>
-               <label for="material_foam_baffle">Foam Baffle Top/Head - Select Material:</label>
-               <select name="material_foam_baffle" id="material_foam_baffle" required>
-                  {options_foam_baffle}
-               </select>
-
-               <h3>Foam Baffle Bottom/Sill (Category 6)</h3>
-               <label for="material_foam_baffle_bottom">Foam Baffle Bottom/Sill - Select Material:</label>
-               <select name="material_foam_baffle_bottom" id="material_foam_baffle_bottom" required>
-                  {options_foam_baffle}
-               </select>
-
-               <h3>Glass Protection (Category 7)</h3>
-               <label for="yield_cat7">Yield for Glass Protection:</label>
-               <input type="number" step="0.01" id="yield_cat7" name="yield_cat7" value="0.91" required>
-               <label for="glass_protection_side">Glass Protection Side:</label>
-               <select name="glass_protection_side" id="glass_protection_side" required>
-                  <option value="one">One Sided</option>
-                  <option value="double">Double Sided</option>
-                  <option value="none">No Film</option>
-               </select>
-               <label for="material_glass_protection">Glass Protection - Total Area (sq ft) × Cost / Yield (or ×2 if double sided):</label>
-               <select name="material_glass_protection" id="material_glass_protection" required>
-                  {options_glass_protection}
-               </select>
-
-               <h3>Tape (Category 10)</h3>
-               <label for="yield_cat10">Yield for Tape:</label>
-               <input type="number" step="0.01" id="yield_cat10" name="yield_cat10" value="0.91" required>
-               <label for="retainer_attachment_option">Retainer Attachment Option:</label>
-               <select name="retainer_attachment_option" id="retainer_attachment_option" required>
-                  <option value="head_retainer">Head Retainer (Half Horizontal)</option>
-                  <option value="head_sill">Head+Sill (Full Horizontal)</option>
-                  <option value="no_tape">No Tape</option>
-               </select>
-               <label for="material_tape">Tape Material - Cost calculated / Yield:</label>
-               <select name="material_tape" id="material_tape" required>
-                  {options_tape}
-               </select>
-
-               <h3>Head Retainers (Category 17)</h3>
-               <label for="yield_cat17">Yield for Head Retainers:</label>
-               <input type="number" step="0.01" id="yield_cat17" name="yield_cat17" value="0.91" required>
-               <label for="material_head_retainers">Head Retainers - 0.5 × Total Horizontal (ft) × Cost / Yield:</label>
-               <select name="material_head_retainers" id="material_head_retainers" required>
-                  {options_head_retainers}
-               </select>
-
-               <button type="submit">Calculate SWR Material Costs</button>
+               <div>
+                  <label for="yield_cat15">Glass (Cat 15) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat15" name="yield_cat15" value="0.97" required>
+               </div>
+               <div>
+                  <label for="material_glass">Select Glass:</label>
+                  <select name="material_glass" id="material_glass" required>
+                     {generate_options(materials_glass)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_aluminum">Extrusions (Cat 1) Yield:</label>
+                  <input type="number" step="0.01" id="yield_aluminum" name="yield_aluminum" value="0.75" required>
+               </div>
+               <div>
+                  <label for="material_aluminum">Select Extrusions:</label>
+                  <select name="material_aluminum" id="material_aluminum" required>
+                     {generate_options(materials_aluminum)}
+                  </select>
+               </div>
+               <div>
+                  <label for="retainer_option">Retainer Option:</label>
+                  <select name="retainer_option" id="retainer_option" required>
+                     <option value="head_retainer">Head Retainer</option>
+                     <option value="head_and_sill">Head + Sill Retainer</option>
+                     <option value="no_retainer">No Retainer</option>
+                  </select>
+               </div>
+               <div>
+                  <label for="material_retainer">Select Retainer Material:</label>
+                  <select name="material_retainer" id="material_retainer" required>
+                     {generate_options(materials_aluminum)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat2">Glazing Spline (Cat 2) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat2" name="yield_cat2" value="0.91" required>
+               </div>
+               <div>
+                  <label for="material_glazing">Select Glazing Spline:</label>
+                  <select name="material_glazing" id="material_glazing" required>
+                     {generate_options(materials_glazing)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat3">Gaskets (Cat 3) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat3" name="yield_cat3" value="0.91" required>
+               </div>
+               <div>
+                  <label for="material_gaskets">Select Gaskets:</label>
+                  <select name="material_gaskets" id="material_gaskets" required>
+                     {generate_options(materials_gaskets)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat4">Corner Keys (Cat 4) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat4" name="yield_cat4" value="0.91" required>
+               </div>
+               <div>
+                  <label for="material_corner_keys">Select Corner Keys:</label>
+                  <select name="material_corner_keys" id="material_corner_keys" required>
+                     {generate_options(materials_corner_keys)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat5">Dual Lock (Cat 5) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat5" name="yield_cat5" value="0.91" required>
+               </div>
+               <div>
+                  <label for="material_dual_lock">Select Dual Lock:</label>
+                  <select name="material_dual_lock" id="material_dual_lock" required>
+                     {generate_options(materials_dual_lock)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat6">Foam Baffle Yield (Cat 6):</label>
+                  <input type="number" step="0.01" id="yield_cat6" name="yield_cat6" value="0.91" required>
+               </div>
+               <div>
+                  <label for="material_foam_baffle">Select Foam Baffle Top/Head:</label>
+                  <select name="material_foam_baffle" id="material_foam_baffle" required>
+                     {generate_options(materials_foam_baffle)}
+                  </select>
+               </div>
+               <div>
+                  <label for="material_foam_baffle_bottom">Select Foam Baffle Bottom/Sill:</label>
+                  <select name="material_foam_baffle_bottom" id="material_foam_baffle_bottom" required>
+                     {generate_options(materials_foam_baffle)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat7">Glass Protection (Cat 7) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat7" name="yield_cat7" value="0.91" required>
+               </div>
+               <div>
+                  <label for="glass_protection_side">Glass Protection Side:</label>
+                  <select name="glass_protection_side" id="glass_protection_side" required>
+                     <option value="one">One Sided</option>
+                     <option value="double">Double Sided</option>
+                     <option value="none">No Film</option>
+                  </select>
+               </div>
+               <div>
+                  <label for="material_glass_protection">Select Glass Protection:</label>
+                  <select name="material_glass_protection" id="material_glass_protection" required>
+                     {generate_options(materials_glass_protection)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat10">Tape (Cat 10) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat10" name="yield_cat10" value="0.91" required>
+               </div>
+               <div>
+                  <label for="retainer_attachment_option">Retainer Attachment Option:</label>
+                  <select name="retainer_attachment_option" id="retainer_attachment_option" required>
+                     <option value="head_retainer">Head Retainer (Half Horizontal)</option>
+                     <option value="head_sill">Head+Sill (Full Horizontal)</option>
+                     <option value="no_tape">No Tape</option>
+                  </select>
+               </div>
+               <div>
+                  <label for="material_tape">Select Tape Material:</label>
+                  <select name="material_tape" id="material_tape" required>
+                     {generate_options(materials_tape)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_cat17">Head Retainers (Cat 17) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat17" name="yield_cat17" value="0.91" required>
+               </div>
+               <div>
+                  <label for="material_head_retainers">Select Head Retainers:</label>
+                  <select name="material_head_retainers" id="material_head_retainers" required>
+                     {generate_options(materials_head_retainers)}
+                  </select>
+               </div>
+               <div class="btn-group">
+                  <button type="button" class="btn" onclick="window.location.href='/summary'">Back: Edit Summary</button>
+                  <button type="submit" class="btn">Calculate SWR Material Costs</button>
+               </div>
             </form>
-            <button onclick="window.location.href='/summary'">Back to Summary</button>
          </div>
       </body>
     </html>
@@ -672,7 +697,7 @@ def materials():
 
 
 # =========================
-# OTHER COSTS PAGE (Unchanged)
+# OTHER COSTS PAGE
 # =========================
 @app.route('/other_costs', methods=['GET', 'POST'])
 def other_costs():
@@ -746,8 +771,14 @@ def other_costs():
                  <tr><td><strong>Additional Total</strong></td><td><strong>{additional_total:.2f}</strong></td></tr>
                  <tr><th>Grand Total</th><th>{grand_total:.2f}</th></tr>
                </table>
-               <button onclick="window.location.href='/margins'">Next: Set Margins</button>
-               <button onclick="window.location.href='/materials'">Back to SWR Materials</button>
+               <div class="btn-group">
+                  <div class="btn-left">
+                     <button type="button" class="btn" onclick="window.location.href='/materials'">Back to SWR Materials</button>
+                  </div>
+                  <div class="btn-right">
+                     <button type="button" class="btn" onclick="window.location.href='/margins'">Next: Set Margins</button>
+                  </div>
+               </div>
              </div>
            </body>
          </html>
@@ -764,65 +795,103 @@ def other_costs():
          <div class="container">
             <h2>Enter Additional Costs</h2>
             <form method="POST">
-              <h3>Logistics (Truck Costs)</h3>
-              <label for="num_trucks">Number of Trucks:</label>
-              <input type="number" step="1" id="num_trucks" name="num_trucks" value="0" required>
-              <label for="truck_cost">Cost per Truck ($):</label>
-              <input type="number" step="100" id="truck_cost" name="truck_cost" value="0" required>
-
-              <h3>Installation</h3>
-              <label for="hourly_rate">Hourly Rate ($/hr):</label>
-              <input type="number" step="1" id="hourly_rate" name="hourly_rate" value="0" required>
-              <label for="hours_per_panel">Hours per Panel:</label>
-              <input type="number" step="1" id="hours_per_panel" name="hours_per_panel" value="0" required>
-
-              <h3>Equipment</h3>
-              <p>Enter cost for each equipment (0 if not needed):</p>
-              <label for="cost_scissor">Scissor Lift ($):</label>
-              <input type="number" step="0.01" id="cost_scissor" name="cost_scissor" value="0">
-              <label for="cost_lull">Lull Rental ($):</label>
-              <input type="number" step="0.01" id="cost_lull" name="cost_lull" value="0">
-              <label for="cost_baker">Baker Rolling Staging ($):</label>
-              <input type="number" step="0.01" id="cost_baker" name="cost_baker" value="0">
-              <label for="cost_crane">Crane ($):</label>
-              <input type="number" step="0.01" id="cost_crane" name="cost_crane" value="0">
-              <label for="cost_blankets">Finished Protected Board Blankets ($):</label>
-              <input type="number" step="0.01" id="cost_blankets" name="cost_blankets" value="0">
-
-              <h3>Travel</h3>
-              <label for="airfare">Airfare ($):</label>
-              <input type="number" step="0.01" id="airfare" name="airfare" value="0" required>
-              <label for="lodging">Lodging ($):</label>
-              <input type="number" step="0.01" id="lodging" name="lodging" value="0" required>
-              <label for="meals">Meals &amp; Incidentals ($):</label>
-              <input type="number" step="0.01" id="meals" name="meals" value="0" required>
-              <label for="car_rental">Car Rental + Gas ($):</label>
-              <input type="number" step="0.01" id="car_rental" name="car_rental" value="0" required>
-
-              <h3>Sales</h3>
-              <p>Enter cost for each sales item (0 if not needed):</p>
-              <label for="cost_audit">Building Audit/Survey ($):</label>
-              <input type="number" step="100" id="cost_audit" name="cost_audit" value="0">
-              <label for="cost_design">System Design Customization ($):</label>
-              <input type="number" step="100" id="cost_design" name="cost_design" value="0">
-              <label for="cost_thermal_stress">Thermal Stress Analysis ($):</label>
-              <input type="number" step="100" id="cost_thermal_stress" name="cost_thermal_stress" value="0">
-              <label for="cost_thermal_performance">Thermal Performance Simulation ($):</label>
-              <input type="number" step="100" id="cost_thermal_performance" name="cost_thermal_performance" value="0">
-              <label for="cost_mockup">Visual &amp; Performance Mockup ($):</label>
-              <input type="number" step="100" id="cost_mockup" name="cost_mockup" value="0">
-              <label for="cost_window">Window Performance M&amp;V ($):</label>
-              <input type="number" step="100" id="cost_window" name="cost_window" value="0">
-              <label for="cost_energy">Building Energy Model ($):</label>
-              <input type="number" step="100" id="cost_energy" name="cost_energy" value="0">
-              <label for="cost_cost_benefit">Cost-Benefit Analysis ($):</label>
-              <input type="number" step="100" id="cost_cost_benefit" name="cost_cost_benefit" value="0">
-              <label for="cost_utility">Utility Incentive Application ($):</label>
-              <input type="number" step="100" id="cost_utility" name="cost_utility" value="0">
-
-              <button type="submit">Calculate Additional Costs</button>
+              <div>
+                <label for="num_trucks">Number of Trucks:</label>
+                <input type="number" step="1" id="num_trucks" name="num_trucks" value="0" required>
+              </div>
+              <div>
+                <label for="truck_cost">Cost per Truck ($):</label>
+                <input type="number" step="100" id="truck_cost" name="truck_cost" value="0" required>
+              </div>
+              <div>
+                <label for="hourly_rate">Hourly Rate ($/hr):</label>
+                <input type="number" step="1" id="hourly_rate" name="hourly_rate" value="0" required>
+              </div>
+              <div>
+                <label for="hours_per_panel">Hours per Panel:</label>
+                <input type="number" step="1" id="hours_per_panel" name="hours_per_panel" value="0" required>
+              </div>
+              <div>
+                <label for="cost_scissor">Scissor Lift ($):</label>
+                <input type="number" step="0.01" id="cost_scissor" name="cost_scissor" value="0">
+              </div>
+              <div>
+                <label for="cost_lull">Lull Rental ($):</label>
+                <input type="number" step="0.01" id="cost_lull" name="cost_lull" value="0">
+              </div>
+              <div>
+                <label for="cost_baker">Baker Rolling Staging ($):</label>
+                <input type="number" step="0.01" id="cost_baker" name="cost_baker" value="0">
+              </div>
+              <div>
+                <label for="cost_crane">Crane ($):</label>
+                <input type="number" step="0.01" id="cost_crane" name="cost_crane" value="0">
+              </div>
+              <div>
+                <label for="cost_blankets">Finished Protected Board Blankets ($):</label>
+                <input type="number" step="0.01" id="cost_blankets" name="cost_blankets" value="0">
+              </div>
+              <div>
+                <label for="airfare">Airfare ($):</label>
+                <input type="number" step="0.01" id="airfare" name="airfare" value="0" required>
+              </div>
+              <div>
+                <label for="lodging">Lodging ($):</label>
+                <input type="number" step="0.01" id="lodging" name="lodging" value="0" required>
+              </div>
+              <div>
+                <label for="meals">Meals &amp; Incidentals ($):</label>
+                <input type="number" step="0.01" id="meals" name="meals" value="0" required>
+              </div>
+              <div>
+                <label for="car_rental">Car Rental + Gas ($):</label>
+                <input type="number" step="0.01" id="car_rental" name="car_rental" value="0" required>
+              </div>
+              <div>
+                <label for="cost_audit">Building Audit/Survey ($):</label>
+                <input type="number" step="100" id="cost_audit" name="cost_audit" value="0">
+              </div>
+              <div>
+                <label for="cost_design">System Design Customization ($):</label>
+                <input type="number" step="100" id="cost_design" name="cost_design" value="0">
+              </div>
+              <div>
+                <label for="cost_thermal_stress">Thermal Stress Analysis ($):</label>
+                <input type="number" step="100" id="cost_thermal_stress" name="cost_thermal_stress" value="0">
+              </div>
+              <div>
+                <label for="cost_thermal_performance">Thermal Performance Simulation ($):</label>
+                <input type="number" step="100" id="cost_thermal_performance" name="cost_thermal_performance" value="0">
+              </div>
+              <div>
+                <label for="cost_mockup">Visual &amp; Performance Mockup ($):</label>
+                <input type="number" step="100" id="cost_mockup" name="cost_mockup" value="0">
+              </div>
+              <div>
+                <label for="cost_window">Window Performance M&amp;V ($):</label>
+                <input type="number" step="100" id="cost_window" name="cost_window" value="0">
+              </div>
+              <div>
+                <label for="cost_energy">Building Energy Model ($):</label>
+                <input type="number" step="100" id="cost_energy" name="cost_energy" value="0">
+              </div>
+              <div>
+                <label for="cost_cost_benefit">Cost-Benefit Analysis ($):</label>
+                <input type="number" step="100" id="cost_cost_benefit" name="cost_cost_benefit" value="0">
+              </div>
+              <div>
+                <label for="cost_utility">Utility Incentive Application ($):</label>
+                <input type="number" step="100" id="cost_utility" name="cost_utility" value="0">
+              </div>
+              <div class="btn-group">
+                 <div class="btn-left">
+                     <button type="button" class="btn" onclick="window.location.href='/materials'">Back to SWR Materials</button>
+                 </div>
+                 <div class="btn-right">
+                     <button type="submit" class="btn">Calculate Additional Costs</button>
+                 </div>
+              </div>
             </form>
-            <button onclick="window.location.href='/materials'">Back to SWR Materials</button>
          </div>
       </body>
     </html>
@@ -831,7 +900,7 @@ def other_costs():
 
 
 # =========================
-# MARGINS PAGE (with Dynamic $/SF Calculation and Navigation Buttons)
+# MARGINS PAGE (Aligned Sliders; removed dynamic $/SF display; Download button is larger)
 # =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
@@ -844,21 +913,20 @@ def margins():
         "Travel": cp.get("travel_cost", 0),
         "Sales": cp.get("sales_cost", 0)
     }
-    total_area = cp.get("swr_total_area", 0) + cp.get("igr_total_area", 0)
     if request.method == 'POST':
-        margins = {}
+        margins_values = {}
         for category in base_costs:
             try:
-                margins[category] = float(request.form.get(f"{category}_margin", 0))
+                margins_values[category] = float(request.form.get(f"{category}_margin", 0))
             except:
-                margins[category] = 0
-        adjusted_costs = {cat: base_costs[cat] * (1 + margins[cat] / 100) for cat in base_costs}
+                margins_values[category] = 0
+        adjusted_costs = {cat: base_costs[cat] * (1 + margins_values[cat] / 100) for cat in base_costs}
         final_total = sum(adjusted_costs.values())
 
         summary_data = {
             "Category": list(base_costs.keys()) + ["Grand Total"],
             "Original Cost ($)": [base_costs[cat] for cat in base_costs] + [sum(base_costs.values())],
-            "Margin (%)": [margins[cat] for cat in base_costs] + [""],
+            "Margin (%)": [margins_values[cat] for cat in base_costs] + [""],
             "Cost with Margin ($)": [adjusted_costs[cat] for cat in base_costs] + [final_total]
         }
         df_summary = pd.DataFrame(summary_data)
@@ -871,7 +939,7 @@ def margins():
             cp["final_summary"].append({
                 "Category": cat,
                 "Original Cost ($)": base_costs[cat],
-                "Margin (%)": margins.get(cat, 0),
+                "Margin (%)": margins_values.get(cat, 0),
                 "Cost with Margin ($)": adjusted_costs[cat]
             })
         cp["grand_total"] = final_total
@@ -899,7 +967,7 @@ def margins():
                  <tr>
                    <td>{cat}</td>
                    <td>{base_costs[cat]:.2f}</td>
-                   <td>{margins[cat]:.2f}</td>
+                   <td>{margins_values[cat]:.2f}</td>
                    <td>{adjusted_costs[cat]:.2f}</td>
                  </tr>
             """
@@ -909,47 +977,24 @@ def margins():
                    <th>{final_total:.2f}</th>
                  </tr>
                </table>
-               <form method="POST" action="/download_final_summary">
+               <div style="text-align:center;">
+                 <button type="submit" class="btn btn-download" onclick="document.getElementById('downloadForm').submit();">Download Final Summary CSV</button>
+               </div>
+               <form id="downloadForm" method="POST" action="/download_final_summary" style="display:none;">
                  <input type="hidden" name="csv_data" value='{csv_output}'>
-                 <button type="submit">Download Final Summary CSV</button>
                </form>
-               <button style="font-size:0.8em; margin-top:5px;" onclick="window.location.href='/other_costs'">Back to Other Costs</button>
-               <button style="font-size:0.8em; margin-top:5px;" onclick="window.location.href='/materials'">Back to SWR Materials</button>
-               <button style="font-size:0.8em; margin-top:5px;" onclick="window.location.href='/'">Start New Project</button>
+               <div class="btn-group">
+                 <div class="btn-left">
+                    <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back: Other Costs</button>
+                 </div>
+                 <div class="btn-right">
+                    <button type="button" class="btn" onclick="window.location.href='/materials'">Back: SWR Materials</button>
+                 </div>
+                 <div class="btn-right">
+                    <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
+                 </div>
+               </div>
              </div>
-             <div class="container">
-               <h3>Dynamic Cost per SF</h3>
-               <p>Total Cost with Margins divided by Total SF:</p>
-               <p>Total SF: {total_area:.2f}</p>
-               <p>$ per SF: $<span id="cost_per_sf">0.00</span></p>
-             </div>
-             <script>
-                function updateOutput(sliderId, outputId) {{
-                    var slider = document.getElementById(sliderId);
-                    var output = document.getElementById(outputId);
-                    output.value = slider.value;
-                    recalcCostPerSF();
-                }}
-                function recalcCostPerSF() {{
-                    var baseCosts = {json.dumps(base_costs)};
-                    var totalArea = {total_area};
-                    var adjustedTotal = 0;
-                    for (var cat in baseCosts) {{
-                        var slider = document.getElementById(cat.replace(/ /g, "_") + "_margin");
-                        var margin = parseFloat(slider.value) || 0;
-                        adjustedTotal += baseCosts[cat] * (1 + margin / 100);
-                    }}
-                    var costPerSF = adjustedTotal / totalArea;
-                    document.getElementById("cost_per_sf").innerText = costPerSF.toFixed(2);
-                }}
-                window.addEventListener("load", function() {{
-                    var sliders = document.querySelectorAll("input[type='range']");
-                    sliders.forEach(function(slider) {{
-                        slider.addEventListener("input", recalcCostPerSF);
-                    }});
-                    recalcCostPerSF();
-                }});
-             </script>
            </body>
          </html>
         """
@@ -965,27 +1010,7 @@ def margins():
                 var slider = document.getElementById(sliderId);
                 var output = document.getElementById(outputId);
                 output.value = slider.value;
-                recalcCostPerSF();
             }}
-            function recalcCostPerSF() {{
-                var baseCosts = {json.dumps(base_costs)};
-                var totalArea = {total_area};
-                var adjustedTotal = 0;
-                for (var cat in baseCosts) {{
-                    var slider = document.getElementById(cat.replace(/ /g, "_") + "_margin");
-                    var margin = parseFloat(slider.value) || 0;
-                    adjustedTotal += baseCosts[cat] * (1 + margin / 100);
-                }}
-                var costPerSF = adjustedTotal / totalArea;
-                document.getElementById("cost_per_sf").innerText = costPerSF.toFixed(2);
-            }}
-            window.addEventListener("load", function() {{
-                var sliders = document.querySelectorAll("input[type='range']");
-                sliders.forEach(function(slider) {{
-                    slider.addEventListener("input", recalcCostPerSF);
-                }});
-                recalcCostPerSF();
-            }});
          </script>
       </head>
       <body>
@@ -996,15 +1021,22 @@ def margins():
     for category in base_costs:
         var_id = category.replace(" ", "_")
         form_html += f"""
-                <label for="{var_id}_margin">{category} Margin (%):</label>
-                <input type="range" id="{var_id}_margin" name="{category}_margin" min="0" max="100" step="1" value="0" oninput="updateOutput('{var_id}_margin', '{var_id}_output')">
-                <output id="{var_id}_output">0</output><br>
+                <div class="margin-row">
+                   <label for="{var_id}_margin">{category} Margin (%):</label>
+                   <input type="range" id="{var_id}_margin" name="{category}_margin" min="0" max="100" step="1" value="0" oninput="updateOutput('{var_id}_margin', '{var_id}_output')">
+                   <output id="{var_id}_output">0</output>
+                </div>
         """
     form_html += """
-                <button type="submit">Calculate Final Cost with Margins</button>
+                <div class="btn-group">
+                    <div class="btn-left">
+                        <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Other Costs</button>
+                    </div>
+                    <div class="btn-right">
+                        <button type="submit" class="btn">Calculate Final Cost with Margins</button>
+                    </div>
+                </div>
             </form>
-            <p>Total Cost per SF: $<span id="cost_per_sf">0.00</span></p>
-            <button onclick="window.location.href='/other_costs'">Back to Other Costs</button>
          </div>
       </body>
     </html>
@@ -1029,7 +1061,6 @@ def create_final_summary_csv():
     cp = get_current_project()
     output = io.StringIO()
     writer = csv.writer(output)
-
     project_name = cp.get("project_name", "Unnamed Project")
     project_number = cp.get("project_number", "")
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
