@@ -11,7 +11,7 @@ import json
 app = Flask(__name__)
 app.secret_key = "Ti5om4gm!"  # Replace with a secure random key
 
-# Database Configuration
+# Database Configuration (update with your actual connection string)
 app.config[
     'SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -20,7 +20,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
-# Define the Material model
+# Define the Material model (using 'nickname' for display)
 class Material(db.Model):
     __tablename__ = 'materials'
     id = db.Column(db.Integer, primary_key=True)
@@ -43,7 +43,7 @@ class Material(db.Model):
     supplier = db.Column(db.String(100))
 
 
-# Helper: Recursively convert NumPy int64 to native Python types
+# Helper function: Recursively convert NumPy int64 (and similar types) to native Python int
 def make_serializable(obj):
     if isinstance(obj, dict):
         return {k: make_serializable(v) for k, v in obj.items()}
@@ -55,7 +55,7 @@ def make_serializable(obj):
         return obj
 
 
-# Helper: Get or initialize current_project in session
+# Helper function: get or initialize current_project in session
 def get_current_project():
     cp = session.get("current_project")
     if cp is None:
@@ -64,7 +64,7 @@ def get_current_project():
     return cp
 
 
-# Helper: Save current_project to session after converting to serializable types
+# Helper function: save the project to session after converting to serializable types
 def save_current_project(cp):
     session["current_project"] = make_serializable(cp)
 
@@ -72,8 +72,7 @@ def save_current_project(cp):
 # Path to the CSV template
 TEMPLATE_PATH = 'estimation_template_template.csv'
 
-# Common CSS with fixed label widths for margins and consistent button groups.
-# Also, the .btn-download class is now larger.
+# Common CSS for consistent styling, fixed label widths for margins, and consistent button groups.
 common_css = """
     @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600&display=swap');
     body { background-color: #121212; color: #ffffff; font-family: 'Exo 2', sans-serif; padding: 20px; }
@@ -271,7 +270,7 @@ def materials():
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
     if request.method == 'POST':
-        # Get yield values (with defaults)
+        # Retrieve yield values (with defaults)
         try:
             yield_cat15 = float(request.form.get('yield_cat15', 0.97))
         except:
@@ -327,6 +326,8 @@ def materials():
         glass_protection_side = request.form.get('glass_protection_side')
         selected_glass_protection = request.form.get('material_glass_protection')
         retainer_attachment_option = request.form.get('retainer_attachment_option')
+        # NEW: Nails selection added here
+        nails_option = request.form.get('nails_option')
         selected_tape = request.form.get('material_tape')
         selected_head_retainers = request.form.get('material_head_retainers')
 
@@ -350,7 +351,7 @@ def materials():
         total_horizontal = cp.get('swr_total_horizontal_ft', 0)
         total_quantity = cp.get('swr_total_quantity', 0)
 
-        # Cost calculations:
+        # Cost calculations per category
         cost_glass = (total_area * mat_glass.cost) / yield_cat15 if mat_glass else 0
         cost_aluminum = (total_perimeter * mat_aluminum.cost) / yield_aluminum if mat_aluminum else 0
         if retainer_option == "head_retainer":
@@ -395,7 +396,7 @@ def materials():
                                cost_glass_protection + cost_tape + cost_head_retainers)
         cp['material_total_cost'] = total_material_cost
 
-        # Build an itemized list with two extra columns: "$ per SF" and "% Total Cost"
+        # Build a simplified list for detailed itemized costs with two extra columns ($ per SF and % Total Cost)
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -538,6 +539,8 @@ def materials():
             options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
         return options
 
+    # Build the form with the previous (framed) layout.
+    # Added a new dropdown for "Nails" between "Retainer Attachment Option" and "Select Tape Material".
     form_html = f"""
     <html>
       <head>
@@ -580,6 +583,15 @@ def materials():
                   <label for="material_retainer">Select Retainer Material:</label>
                   <select name="material_retainer" id="material_retainer" required>
                      {generate_options(materials_aluminum)}
+                  </select>
+               </div>
+               <!-- NEW Nails dropdown -->
+               <div>
+                  <label for="nails_option">Nails:</label>
+                  <select name="nails_option" id="nails_option" required>
+                     <option value="none" selected>None</option>
+                     <option value="head_retainer">Head Retainer</option>
+                     <option value="head_and_sill">Head + Sill</option>
                   </select>
                </div>
                <div>
@@ -900,7 +912,7 @@ def other_costs():
 
 
 # =========================
-# MARGINS PAGE (Aligned Sliders; removed dynamic $/SF display; Download button is larger)
+# MARGINS PAGE (Aligned Sliders; Download button larger)
 # =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
