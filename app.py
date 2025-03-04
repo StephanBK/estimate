@@ -12,8 +12,7 @@ app = Flask(__name__)
 app.secret_key = "Ti5om4gm!"  # Replace with a secure random key
 
 # Database Configuration (update with your actual connection string)
-app.config[
-    'SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize the database
@@ -72,7 +71,7 @@ def save_current_project(cp):
 # Path to the CSV template
 TEMPLATE_PATH = 'estimation_template_template.csv'
 
-# Common CSS for consistent styling, fixed label widths for margins, and consistent button groups.
+# Common CSS for consistent styling
 common_css = """
     @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600&display=swap');
     body { background-color: #121212; color: #ffffff; font-family: 'Exo 2', sans-serif; padding: 20px; }
@@ -98,7 +97,7 @@ common_css = """
 
 
 # =========================
-# INDEX PAGE (Row-by-row layout)
+# INDEX PAGE
 # =========================
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -194,8 +193,7 @@ def summary():
         return total_area, total_perimeter, total_vertical, total_horizontal, total_quantity
 
     swr_area, swr_perimeter, swr_vertical, swr_horizontal, swr_quantity = compute_totals(df_swr)
-    igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = compute_totals(
-        df_igr) if not df_igr.empty else (0, 0, 0, 0, 0)
+    igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = compute_totals(df_igr) if not df_igr.empty else (0, 0, 0, 0, 0)
 
     cp['swr_total_area'] = swr_area
     cp['swr_total_perimeter'] = swr_perimeter
@@ -326,8 +324,8 @@ def materials():
         glass_protection_side = request.form.get('glass_protection_side')
         selected_glass_protection = request.form.get('material_glass_protection')
         retainer_attachment_option = request.form.get('retainer_attachment_option')
-        # NEW: Nails selection added here
-        nails_option = request.form.get('nails_option')
+        # Rename Nails to Screws
+        screws_option = request.form.get('screws_option')
         selected_tape = request.form.get('material_tape')
         selected_head_retainers = request.form.get('material_head_retainers')
 
@@ -339,8 +337,7 @@ def materials():
         mat_corner_keys = Material.query.get(selected_corner_keys) if selected_corner_keys else None
         mat_dual_lock = Material.query.get(selected_dual_lock) if selected_dual_lock else None
         mat_foam_baffle_top = Material.query.get(selected_foam_baffle_top) if selected_foam_baffle_top else None
-        mat_foam_baffle_bottom = Material.query.get(
-            selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
+        mat_foam_baffle_bottom = Material.query.get(selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
         mat_glass_protection = Material.query.get(selected_glass_protection) if selected_glass_protection else None
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
         mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
@@ -351,7 +348,6 @@ def materials():
         total_horizontal = cp.get('swr_total_horizontal_ft', 0)
         total_quantity = cp.get('swr_total_quantity', 0)
 
-        # Cost calculations per category
         cost_glass = (total_area * mat_glass.cost) / yield_cat15 if mat_glass else 0
         cost_aluminum = (total_perimeter * mat_aluminum.cost) / yield_aluminum if mat_aluminum else 0
         if retainer_option == "head_retainer":
@@ -364,15 +360,12 @@ def materials():
         cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_cat3 if mat_gaskets else 0
         cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_cat4 if mat_corner_keys else 0
         cost_dual_lock = (total_quantity * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
-        cost_foam_baffle_top = (
-                                           0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6 if mat_foam_baffle_top else 0
-        cost_foam_baffle_bottom = (
-                                              0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6 if mat_foam_baffle_bottom else 0
+        cost_foam_baffle_top = (0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6 if mat_foam_baffle_top else 0
+        cost_foam_baffle_bottom = (0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6 if mat_foam_baffle_bottom else 0
         if glass_protection_side == "one":
             cost_glass_protection = (total_area * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
         elif glass_protection_side == "double":
-            cost_glass_protection = (
-                                                total_area * mat_glass_protection.cost * 2) / yield_cat7 if mat_glass_protection else 0
+            cost_glass_protection = (total_area * mat_glass_protection.cost * 2) / yield_cat7 if mat_glass_protection else 0
         elif glass_protection_side == "none":
             cost_glass_protection = 0
         else:
@@ -388,15 +381,13 @@ def materials():
                 cost_tape = 0
         else:
             cost_tape = 0
-        cost_head_retainers = ((
-                                           total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
+        cost_head_retainers = ((total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
 
         total_material_cost = (cost_glass + cost_aluminum + cost_retainer + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle_top + cost_foam_baffle_bottom +
                                cost_glass_protection + cost_tape + cost_head_retainers)
         cp['material_total_cost'] = total_material_cost
 
-        # Build a simplified list for detailed itemized costs with two extra columns ($ per SF and % Total Cost)
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -414,15 +405,13 @@ def materials():
             },
             {
                 "Category": "Retainer (Cat 1)",
-                "Selected Material": (
-                    mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
+                "Selected Material": (mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
                 "Unit Cost": (mat_retainer.cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
-                "Calculation": (
-                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_aluminum}"
-                    if retainer_option == "head_retainer"
-                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_aluminum}"
-                          if retainer_option == "head_and_sill"
-                          else "No Retainer")),
+                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_aluminum}"
+                                if retainer_option == "head_retainer"
+                                else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_aluminum}"
+                                      if retainer_option == "head_and_sill"
+                                      else "No Retainer")),
                 "Cost ($)": cost_retainer
             },
             {
@@ -482,7 +471,7 @@ def materials():
                 "Category": "Tape (Cat 10)",
                 "Selected Material": mat_tape.nickname if mat_tape else "N/A",
                 "Unit Cost": mat_tape.cost if mat_tape else 0,
-                "Calculation": f"Retainer Attachment Option: " + (
+                "Calculation": "Retainer Attachment Option: " + (
                     "(Head Retainer - Half Horizontal)" if retainer_attachment_option == "head_retainer"
                     else ("(Head+Sill - Full Horizontal)" if retainer_attachment_option == "head_sill" else "No Tape")),
                 "Cost ($)": cost_tape
@@ -499,8 +488,7 @@ def materials():
         for item in materials_list:
             cost = item["Cost ($)"]
             item["$ per SF"] = cost / total_area if total_area > 0 else 0
-            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost",
-                                                                                             0) > 0 else 0
+            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost", 0) > 0 else 0
 
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
@@ -539,9 +527,7 @@ def materials():
             options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
         return options
 
-    # Build the form with the previous (framed) layout.
-    # Added a new dropdown for "Nails" between "Retainer Attachment Option" and "Select Tape Material".
-    form_html = f"""
+    return f"""
     <html>
       <head>
          <title>SWR Materials</title>
@@ -585,10 +571,10 @@ def materials():
                      {generate_options(materials_aluminum)}
                   </select>
                </div>
-               <!-- NEW Nails dropdown -->
+               <!-- Rename Nails to Screws -->
                <div>
-                  <label for="nails_option">Nails:</label>
-                  <select name="nails_option" id="nails_option" required>
+                  <label for="screws_option">Screws:</label>
+                  <select name="screws_option" id="screws_option" required>
                      <option value="none" selected>None</option>
                      <option value="head_retainer">Head Retainer</option>
                      <option value="head_and_sill">Head + Sill</option>
@@ -912,11 +898,12 @@ def other_costs():
 
 
 # =========================
-# MARGINS PAGE (Aligned Sliders; Download button larger)
+# MARGINS PAGE (Aligned Sliders with Dynamic $ per SF Display)
 # =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
     cp = get_current_project()
+    # Base costs for the SWR items (these were calculated in previous pages)
     base_costs = {
         "Panel Total": cp.get("material_total_cost", 0),
         "Logistics": cp.get("total_truck_cost", 0),
@@ -925,6 +912,8 @@ def margins():
         "Travel": cp.get("travel_cost", 0),
         "Sales": cp.get("sales_cost", 0)
     }
+    total_area = cp.get("swr_total_area", 0)  # Total SF for SWR items
+
     if request.method == 'POST':
         margins_values = {}
         for category in base_costs:
@@ -932,6 +921,7 @@ def margins():
                 margins_values[category] = float(request.form.get(f"{category}_margin", 0))
             except:
                 margins_values[category] = 0
+        # Adjust each base cost by its margin and sum to get final total cost with margins
         adjusted_costs = {cat: base_costs[cat] * (1 + margins_values[cat] / 100) for cat in base_costs}
         final_total = sum(adjusted_costs.values())
 
@@ -997,10 +987,10 @@ def margins():
                </form>
                <div class="btn-group">
                  <div class="btn-left">
-                    <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back: Other Costs</button>
+                    <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Other Costs</button>
                  </div>
                  <div class="btn-right">
-                    <button type="button" class="btn" onclick="window.location.href='/materials'">Back: SWR Materials</button>
+                    <button type="button" class="btn" onclick="window.location.href='/materials'">Back to SWR Materials</button>
                  </div>
                  <div class="btn-right">
                     <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
@@ -1012,16 +1002,40 @@ def margins():
         """
         return result_html
 
+    # Build the margins form with dynamic $ per SF display below the margin sliders
     form_html = f"""
     <html>
       <head>
          <title>Set Margins</title>
          <style>{common_css}</style>
          <script>
+            var baseCosts = {json.dumps(base_costs)};
+            var totalArea = {total_area};
             function updateOutput(sliderId, outputId) {{
                 var slider = document.getElementById(sliderId);
                 var output = document.getElementById(outputId);
                 output.value = slider.value;
+                updateGrandPSF();
+            }}
+            function updateGrandPSF() {{
+                var categories = ["Panel Total", "Logistics", "Installation", "Equipment", "Travel", "Sales"];
+                var sum = 0;
+                for (var i = 0; i < categories.length; i++) {{
+                    var cat = categories[i];
+                    var var_id = cat.replace(" ", "_");
+                    var slider = document.getElementById(var_id + "_margin");
+                    var margin = parseFloat(slider.value);
+                    var cost = baseCosts[cat];
+                    var adjusted = cost * (1 + margin / 100);
+                    sum += adjusted;
+                }}
+                var grandDisplay = document.getElementById("grand_psf");
+                if(totalArea > 0) {{
+                    var psf = sum / totalArea;
+                    grandDisplay.innerText = "$" + psf.toFixed(2) + " per SF";
+                }} else {{
+                    grandDisplay.innerText = "N/A";
+                }}
             }}
          </script>
       </head>
@@ -1040,6 +1054,10 @@ def margins():
                 </div>
         """
     form_html += """
+                <div class="margin-row" style="justify-content:center;">
+                    <label style="margin-right:10px;">Grand Total $ per SF:</label>
+                    <span id="grand_psf">$0.00 per SF</span>
+                </div>
                 <div class="btn-group">
                     <div class="btn-left">
                         <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Other Costs</button>
@@ -1174,8 +1192,7 @@ def create_final_export_excel(margins_dict=None):
         row += 1
 
     start_row = 9
-    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF",
-                      "% Total Cost"]
+    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost"]
     for col, header in enumerate(headers_detail):
         ws.write(start_row, col, header)
     line_items = cp.get("itemized_costs", [])
