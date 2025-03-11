@@ -998,6 +998,7 @@ def other_costs():
         total_truck_cost = num_trucks * cost_per_truck
 
         hourly_rate = float(request.form.get('hourly_rate', 0))
+        # Allow float values for hours per panel by setting step=0.01 in the form
         hours_per_panel = float(request.form.get('hours_per_panel', 0))
         installation_cost = hourly_rate * hours_per_panel * total_quantity
 
@@ -1095,9 +1096,10 @@ def other_costs():
                 <label for="hourly_rate">Hourly Rate ($/hr):</label>
                 <input type="number" step="1" id="hourly_rate" name="hourly_rate" value="0" required>
               </div>
+              <!-- Updated: Allow float values for Hours per Panel -->
               <div>
                 <label for="hours_per_panel">Hours per Panel:</label>
-                <input type="number" step="1" id="hours_per_panel" name="hours_per_panel" value="0" required>
+                <input type="number" step="0.01" id="hours_per_panel" name="hours_per_panel" value="0" required>
               </div>
               <div>
                 <label for="cost_scissor">Scissor Lift ($):</label>
