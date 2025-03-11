@@ -107,6 +107,8 @@ def index():
         cp['project_name'] = request.form['project_name']
         cp['project_number'] = request.form['project_number']
         cp['swr_system'] = request.form['swr_system']
+        # Save the IGR type from the toggle (Wet Seal IGR or Dry Seal IGR)
+        cp['igr_type'] = request.form['igr_type']
         file = request.files['file']
         if file:
             file_path = os.path.join('uploads', file.filename)
@@ -139,6 +141,14 @@ def index():
                       <option value="SWR">SWR</option>
                       <option value="SWR-IG">SWR-IG</option>
                       <option value="SWR-VIG">SWR-VIG</option>
+                  </select>
+               </div>
+               <!-- IGR Type Toggle with same width as SWR System -->
+               <div>
+                  <label for="igr_type">IGR Type:</label>
+                  <select name="igr_type" id="igr_type" style="width:200px;" required>
+                     <option value="Wet Seal IGR">Wet Seal IGR</option>
+                     <option value="Dry Seal IGR">Dry Seal IGR</option>
                   </select>
                </div>
                <div>
@@ -250,7 +260,7 @@ def summary():
 
 
 # =========================
-# MATERIALS PAGE (Improved Framed Layout)
+# SWR MATERIALS PAGE (Updated: Retainer Material now from Category 17)
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
@@ -265,14 +275,13 @@ def materials():
         materials_foam_baffle = Material.query.filter_by(category=6).all()
         materials_glass_protection = Material.query.filter_by(category=7).all()
         materials_tape = Material.query.filter_by(category=10).all()
+        # For retainer material, pull from Category 17
         materials_head_retainers = Material.query.filter_by(category=17).all()
-        # New: Fetch screws (Category 18)
         materials_screws = Material.query.filter_by(category=18).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
     if request.method == 'POST':
-        # Retrieve yield values
         try:
             yield_cat15 = float(request.form.get('yield_cat15', 0.97))
         except:
@@ -314,7 +323,6 @@ def materials():
         except:
             yield_cat17 = 0.91
 
-        # Retrieve selected materials and options
         selected_glass = request.form.get('material_glass')
         selected_aluminum = request.form.get('material_aluminum')
         retainer_option = request.form.get('retainer_option')
@@ -330,7 +338,6 @@ def materials():
         retainer_attachment_option = request.form.get('retainer_attachment_option')
         selected_tape = request.form.get('material_tape')
         selected_head_retainers = request.form.get('material_head_retainers')
-        # New: Retrieve screws option and selected screws material
         screws_option = request.form.get('screws_option')
         selected_screws = request.form.get('material_screws')
 
@@ -347,7 +354,6 @@ def materials():
         mat_glass_protection = Material.query.get(selected_glass_protection) if selected_glass_protection else None
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
         mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
-        # New: Retrieve screws material
         mat_screws = Material.query.get(selected_screws) if selected_screws else None
 
         total_area = cp.get('swr_total_area', 0)
@@ -395,7 +401,6 @@ def materials():
         cost_head_retainers = ((
                                            total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
 
-        # New: Calculate screws cost based on the selected option
         if screws_option == "head_retainer":
             cost_screws = (0.5 * total_horizontal * 4 * (mat_screws.cost if mat_screws else 0))
         elif screws_option == "head_and_sill":
@@ -424,7 +429,7 @@ def materials():
                 "Cost ($)": cost_aluminum
             },
             {
-                "Category": "Retainer (Cat 1)",
+                "Category": "Retainer (Cat 17)",
                 "Selected Material": (
                     mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
                 "Unit Cost": (mat_retainer.cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
@@ -498,7 +503,6 @@ def materials():
                     else ("(Head+Sill - Full Horizontal)" if retainer_attachment_option == "head_sill" else "No Tape")),
                 "Cost ($)": cost_tape
             },
-            # New: Screws cost breakdown
             {
                 "Category": "Screws (Cat 18)",
                 "Selected Material": mat_screws.nickname if mat_screws else "N/A",
@@ -510,15 +514,7 @@ def materials():
                                       else "No Screws")),
                 "Cost ($)": cost_screws
             },
-            {
-                "Category": "Head Retainers (Cat 17)",
-                "Selected Material": mat_head_retainers.nickname if mat_head_retainers else "N/A",
-                "Unit Cost": mat_head_retainers.cost if mat_head_retainers else 0,
-                "Calculation": f"0.5 × Total Horizontal × Cost / {yield_cat17}",
-                "Cost ($)": cost_head_retainers
-            }
         ]
-        # Add two extra columns: "$ per SF" and "% Total Cost"
         for item in materials_list:
             cost = item["Cost ($)"]
             item["$ per SF"] = cost / total_area if total_area > 0 else 0
@@ -528,7 +524,6 @@ def materials():
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
 
-        # Build HTML table for display
         table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th><th>$ per SF</th><th>% Total Cost</th></tr>"
         for item in materials_list:
             table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td><td>{item['$ per SF']:.2f}</td><td>{item['% Total Cost']:.2f}</td></tr>"
@@ -549,7 +544,7 @@ def materials():
                {table_html}
                <div class="btn-group">
                  <button type="button" class="btn" onclick="window.location.href='/materials'">Back: Edit Materials</button>
-                 <button type="button" class="btn" onclick="window.location.href='/other_costs'">Next: Other Costs</button>
+                 <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Next: IGR Materials</button>
                </div>
              </div>
            </body>
@@ -562,7 +557,6 @@ def materials():
             options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
         return options
 
-    # Build the HTML form with the new screws fields added
     form_html = f"""
     <html>
       <head>
@@ -601,13 +595,14 @@ def materials():
                      <option value="no_retainer">No Retainer</option>
                   </select>
                </div>
+               <!-- Retainer Material now from Category 17 -->
                <div>
                   <label for="material_retainer">Select Retainer Material:</label>
                   <select name="material_retainer" id="material_retainer" required>
-                     {generate_options(materials_aluminum)}
+                     {generate_options(materials_head_retainers)}
                   </select>
                </div>
-               <!-- New: Screws selection -->
+               <!-- Screws selection -->
                <div>
                   <label for="screws_option">Screws Option:</label>
                   <select name="screws_option" id="screws_option" required>
@@ -737,12 +732,265 @@ def materials():
 
 
 # =========================
-# OTHER COSTS PAGE
+# IGR MATERIALS PAGE (New)
+# =========================
+@app.route('/igr_materials', methods=['GET', 'POST'])
+def igr_materials():
+    cp = get_current_project()
+    try:
+        # For IGR, we reuse some categories but remove those not needed.
+        igr_glass = Material.query.filter_by(category=15).all()
+        igr_extrusions = Material.query.filter_by(category=1).all()
+        igr_gaskets = Material.query.filter_by(category=3).all()
+        igr_glass_protection = Material.query.filter_by(category=7).all()
+        # Tapes for IGR come from category 10.
+        igr_tape = Material.query.filter_by(category=10).all()
+    except Exception as e:
+        return f"<h2 style='color: red;'>Error fetching IGR materials: {e}</h2>"
+
+    if request.method == 'POST':
+        try:
+            yield_igr_glass = float(request.form.get('yield_igr_glass', 0.97))
+        except:
+            yield_igr_glass = 0.97
+        try:
+            yield_igr_extrusions = float(request.form.get('yield_igr_extrusions', 0.75))
+        except:
+            yield_igr_extrusions = 0.75
+        try:
+            yield_igr_gaskets = float(request.form.get('yield_igr_gaskets', 0.91))
+        except:
+            yield_igr_gaskets = 0.91
+        try:
+            yield_igr_glass_protection = float(request.form.get('yield_igr_glass_protection', 0.91))
+        except:
+            yield_igr_glass_protection = 0.91
+        try:
+            yield_igr_perimeter_tape = float(request.form.get('yield_igr_perimeter_tape', 0.91))
+        except:
+            yield_igr_perimeter_tape = 0.91
+        try:
+            yield_igr_structural_tape = float(request.form.get('yield_igr_structural_tape', 0.91))
+        except:
+            yield_igr_structural_tape = 0.91
+
+        selected_igr_glass = request.form.get('igr_material_glass')
+        selected_igr_extrusions = request.form.get('igr_material_extrusions')
+        selected_igr_gaskets = request.form.get('igr_material_gaskets')
+        selected_igr_glass_protection = request.form.get('igr_material_glass_protection')
+        selected_igr_perimeter_tape = request.form.get('igr_material_perimeter_tape')
+        selected_igr_structural_tape = request.form.get('igr_material_structural_tape')
+
+        mat_igr_glass = Material.query.get(selected_igr_glass) if selected_igr_glass else None
+        mat_igr_extrusions = Material.query.get(selected_igr_extrusions) if selected_igr_extrusions else None
+        mat_igr_gaskets = Material.query.get(selected_igr_gaskets) if selected_igr_gaskets else None
+        mat_igr_glass_protection = Material.query.get(
+            selected_igr_glass_protection) if selected_igr_glass_protection else None
+        mat_igr_perimeter_tape = Material.query.get(
+            selected_igr_perimeter_tape) if selected_igr_perimeter_tape else None
+        mat_igr_structural_tape = Material.query.get(
+            selected_igr_structural_tape) if selected_igr_structural_tape else None
+
+        total_area = cp.get('igr_total_area', 0)
+        total_perimeter = cp.get('igr_total_perimeter', 0)
+        total_vertical = cp.get('igr_total_vertical_ft', 0)
+
+        cost_igr_glass = (total_area * mat_igr_glass.cost) / yield_igr_glass if mat_igr_glass else 0
+        cost_igr_extrusions = (
+                                          total_perimeter * mat_igr_extrusions.cost) / yield_igr_extrusions if mat_igr_extrusions else 0
+        cost_igr_gaskets = (total_vertical * mat_igr_gaskets.cost) / yield_igr_gaskets if mat_igr_gaskets else 0
+        cost_igr_glass_protection = (
+                                                total_area * mat_igr_glass_protection.cost) / yield_igr_glass_protection if mat_igr_glass_protection else 0
+
+        if cp.get('igr_type') == "Dry Seal IGR":
+            cost_igr_perimeter_tape = 0
+        else:
+            cost_igr_perimeter_tape = (
+                                                  total_perimeter * mat_igr_perimeter_tape.cost) / yield_igr_perimeter_tape if mat_igr_perimeter_tape else 0
+
+        cost_igr_structural_tape = (
+                                               total_perimeter * mat_igr_structural_tape.cost) / yield_igr_structural_tape if mat_igr_structural_tape else 0
+
+        total_igr_material_cost = (cost_igr_glass + cost_igr_extrusions + cost_igr_gaskets +
+                                   cost_igr_glass_protection + cost_igr_perimeter_tape + cost_igr_structural_tape)
+        cp['igr_material_total_cost'] = total_igr_material_cost
+
+        igr_items = [
+            {
+                "Category": "IGR Glass (Cat 15)",
+                "Selected Material": mat_igr_glass.nickname if mat_igr_glass else "N/A",
+                "Unit Cost": mat_igr_glass.cost if mat_igr_glass else 0,
+                "Calculation": f"Total Area {total_area:.2f} × Cost / {yield_igr_glass}",
+                "Cost ($)": cost_igr_glass
+            },
+            {
+                "Category": "IGR Extrusions (Cat 1)",
+                "Selected Material": mat_igr_extrusions.nickname if mat_igr_extrusions else "N/A",
+                "Unit Cost": mat_igr_extrusions.cost if mat_igr_extrusions else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_igr_extrusions}",
+                "Cost ($)": cost_igr_extrusions
+            },
+            {
+                "Category": "IGR Gaskets (Cat 3)",
+                "Selected Material": mat_igr_gaskets.nickname if mat_igr_gaskets else "N/A",
+                "Unit Cost": mat_igr_gaskets.cost if mat_igr_gaskets else 0,
+                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / {yield_igr_gaskets}",
+                "Cost ($)": cost_igr_gaskets
+            },
+            {
+                "Category": "IGR Glass Protection (Cat 7)",
+                "Selected Material": mat_igr_glass_protection.nickname if mat_igr_glass_protection else "N/A",
+                "Unit Cost": mat_igr_glass_protection.cost if mat_igr_glass_protection else 0,
+                "Calculation": f"Total Area {total_area:.2f} × Cost / {yield_igr_glass_protection}",
+                "Cost ($)": cost_igr_glass_protection
+            },
+            {
+                "Category": "IGR Perimeter Butyl Tape (Cat 10)",
+                "Selected Material": mat_igr_perimeter_tape.nickname if mat_igr_perimeter_tape else "N/A",
+                "Unit Cost": mat_igr_perimeter_tape.cost if mat_igr_perimeter_tape else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_igr_perimeter_tape}",
+                "Cost ($)": cost_igr_perimeter_tape
+            },
+            {
+                "Category": "IGR Structural Glazing Tape (Cat 10)",
+                "Selected Material": mat_igr_structural_tape.nickname if mat_igr_structural_tape else "N/A",
+                "Unit Cost": mat_igr_structural_tape.cost if mat_igr_structural_tape else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_igr_structural_tape}",
+                "Cost ($)": cost_igr_structural_tape
+            }
+        ]
+        for item in igr_items:
+            item["$ per SF"] = item["Cost ($)"] / total_area if total_area > 0 else 0
+            item["% Total Cost"] = (
+                        item["Cost ($)"] / total_igr_material_cost * 100) if total_igr_material_cost > 0 else 0
+
+        cp["igr_itemized_costs"] = igr_items
+        save_current_project(cp)
+
+        table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th><th>$ per SF</th><th>% Total Cost</th></tr>"
+        for item in igr_items:
+            table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td><td>{item['$ per SF']:.2f}</td><td>{item['% Total Cost']:.2f}</td></tr>"
+        table_html += "</table>"
+
+        cp["igr_materials_breakdown"] = table_html
+        save_current_project(cp)
+
+        return f"""
+         <html>
+           <head>
+             <title>IGR Material Cost Summary</title>
+             <style>{common_css}</style>
+           </head>
+           <body>
+             <div class="container">
+               <h2>IGR Material Cost Summary</h2>
+               {table_html}
+               <div class="btn-group">
+                 <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back: Edit IGR Materials</button>
+                 <button type="button" class="btn" onclick="window.location.href='/other_costs'">Next: Other Costs</button>
+               </div>
+             </div>
+           </body>
+         </html>
+        """
+
+    def generate_options(materials_list):
+        options = ""
+        for m in materials_list:
+            options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
+        return options
+
+    form_html = f"""
+    <html>
+      <head>
+         <title>IGR Materials</title>
+         <style>{common_css}</style>
+      </head>
+      <body>
+         <div class="container">
+            <h2>Select IGR Materials</h2>
+            <form method="POST">
+               <div>
+                  <label for="yield_igr_glass">IGR Glass (Cat 15) Yield:</label>
+                  <input type="number" step="0.01" id="yield_igr_glass" name="yield_igr_glass" value="0.97" required>
+               </div>
+               <div>
+                  <label for="igr_material_glass">Select IGR Glass:</label>
+                  <select name="igr_material_glass" id="igr_material_glass" required>
+                     {generate_options(igr_glass)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_igr_extrusions">IGR Extrusions (Cat 1) Yield:</label>
+                  <input type="number" step="0.01" id="yield_igr_extrusions" name="yield_igr_extrusions" value="0.75" required>
+               </div>
+               <div>
+                  <label for="igr_material_extrusions">Select IGR Extrusions:</label>
+                  <select name="igr_material_extrusions" id="igr_material_extrusions" required>
+                     {generate_options(igr_extrusions)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_igr_gaskets">IGR Gaskets (Cat 3) Yield:</label>
+                  <input type="number" step="0.01" id="yield_igr_gaskets" name="yield_igr_gaskets" value="0.91" required>
+               </div>
+               <div>
+                  <label for="igr_material_gaskets">Select IGR Gaskets:</label>
+                  <select name="igr_material_gaskets" id="igr_material_gaskets" required>
+                     {generate_options(igr_gaskets)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_igr_glass_protection">IGR Glass Protection (Cat 7) Yield:</label>
+                  <input type="number" step="0.01" id="yield_igr_glass_protection" name="yield_igr_glass_protection" value="0.91" required>
+               </div>
+               <div>
+                  <label for="igr_material_glass_protection">Select IGR Glass Protection:</label>
+                  <select name="igr_material_glass_protection" id="igr_material_glass_protection" required>
+                     {generate_options(igr_glass_protection)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_igr_perimeter_tape">Perimeter Butyl Tape (Cat 10) Yield:</label>
+                  <input type="number" step="0.01" id="yield_igr_perimeter_tape" name="yield_igr_perimeter_tape" value="0.91" required>
+               </div>
+               <div>
+                  <label for="igr_material_perimeter_tape">Select Perimeter Butyl Tape:</label>
+                  <select name="igr_material_perimeter_tape" id="igr_material_perimeter_tape" required>
+                     {generate_options(igr_tape)}
+                  </select>
+               </div>
+               <div>
+                  <label for="yield_igr_structural_tape">Structural Glazing Tape (Cat 10) Yield:</label>
+                  <input type="number" step="0.01" id="yield_igr_structural_tape" name="yield_igr_structural_tape" value="0.91" required>
+               </div>
+               <div>
+                  <label for="igr_material_structural_tape">Select Structural Glazing Tape:</label>
+                  <select name="igr_material_structural_tape" id="igr_material_structural_tape" required>
+                     {generate_options(igr_tape)}
+                  </select>
+               </div>
+               <div class="btn-group">
+                  <button type="button" class="btn" onclick="window.location.href='/materials'">Back: SWR Materials</button>
+                  <button type="submit" class="btn">Calculate IGR Material Costs</button>
+               </div>
+            </form>
+         </div>
+      </body>
+    </html>
+    """
+    return form_html
+
+
+# =========================
+# OTHER COSTS PAGE (Combined SWR + IGR)
 # =========================
 @app.route('/other_costs', methods=['GET', 'POST'])
 def other_costs():
     cp = get_current_project()
-    material_cost = cp.get('material_total_cost', 0)
+    swr_material = cp.get('material_total_cost', 0)
+    igr_material = cp.get('igr_material_total_cost', 0)
+    combined_material_cost = swr_material + igr_material
     total_quantity = cp.get('swr_total_quantity', 0)
     if request.method == 'POST':
         num_trucks = float(request.form.get('num_trucks', 0))
@@ -780,7 +1028,7 @@ def other_costs():
 
         total_truck_cost = num_trucks * cost_per_truck
         additional_total = total_truck_cost + installation_cost + equipment_cost + travel_cost + sales_cost
-        grand_total = material_cost + additional_total
+        grand_total = combined_material_cost + additional_total
 
         cp["total_truck_cost"] = total_truck_cost
         cp["installation_cost"] = installation_cost
@@ -802,7 +1050,7 @@ def other_costs():
                <h2>Other Costs Summary</h2>
                <table class="summary-table">
                  <tr><th>Cost Item</th><th>Amount ($)</th></tr>
-                 <tr><td>Material Cost</td><td>{material_cost:.2f}</td></tr>
+                 <tr><td>Combined Material Cost</td><td>{combined_material_cost:.2f}</td></tr>
                  <tr><td>Truck Cost</td><td>{total_truck_cost:.2f}</td></tr>
                  <tr><td>Installation</td><td>{installation_cost:.2f}</td></tr>
                  <tr><td>Equipment</td><td>{equipment_cost:.2f}</td></tr>
@@ -813,7 +1061,7 @@ def other_costs():
                </table>
                <div class="btn-group">
                   <div class="btn-left">
-                     <button type="button" class="btn" onclick="window.location.href='/materials'">Back to SWR Materials</button>
+                     <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back to IGR Materials</button>
                   </div>
                   <div class="btn-right">
                      <button type="button" class="btn" onclick="window.location.href='/margins'">Next: Set Margins</button>
@@ -925,7 +1173,7 @@ def other_costs():
               </div>
               <div class="btn-group">
                  <div class="btn-left">
-                     <button type="button" class="btn" onclick="window.location.href='/materials'">Back to SWR Materials</button>
+                     <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back to IGR Materials</button>
                  </div>
                  <div class="btn-right">
                      <button type="submit" class="btn">Calculate Additional Costs</button>
@@ -940,21 +1188,21 @@ def other_costs():
 
 
 # =========================
-# MARGINS PAGE (Aligned Sliders with Dynamic $ per SF Display)
+# MARGINS PAGE (Combined)
 # =========================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
     cp = get_current_project()
-    # Base costs for the SWR items (these were calculated in previous pages)
+    combined_material = cp.get("material_total_cost", 0) + cp.get("igr_material_total_cost", 0)
     base_costs = {
-        "Panel Total": cp.get("material_total_cost", 0),
+        "Panel Total": combined_material,
         "Logistics": cp.get("total_truck_cost", 0),
         "Installation": cp.get("installation_cost", 0),
         "Equipment": cp.get("equipment_cost", 0),
         "Travel": cp.get("travel_cost", 0),
         "Sales": cp.get("sales_cost", 0)
     }
-    total_area = cp.get("swr_total_area", 0)  # Total SF for SWR items
+    total_area = cp.get("swr_total_area", 0)
 
     if request.method == 'POST':
         margins_values = {}
@@ -963,7 +1211,6 @@ def margins():
                 margins_values[category] = float(request.form.get(f"{category}_margin", 0))
             except:
                 margins_values[category] = 0
-        # Adjust each base cost by its margin and sum to get final total cost with margins
         adjusted_costs = {cat: base_costs[cat] * (1 + margins_values[cat] / 100) for cat in base_costs}
         final_total = sum(adjusted_costs.values())
 
@@ -1044,7 +1291,6 @@ def margins():
         """
         return result_html
 
-    # Build the margins form with dynamic $ per SF display below the margin sliders
     form_html = f"""
     <html>
       <head>
@@ -1174,7 +1420,7 @@ def create_final_summary_csv():
         ])
     writer.writerow([])
 
-    writer.writerow(["Detailed Itemized Costs"])
+    writer.writerow(["Detailed SWR Itemized Costs"])
     writer.writerow(
         ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost"])
     line_items = cp.get("itemized_costs", [])
@@ -1185,8 +1431,25 @@ def create_final_summary_csv():
         calc_text = item.get("Calculation", "")
         cost = item.get("Cost ($)", 0)
         cost_per_sf = cost / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0
-        percent_total = (cost / cp.get("grand_total", 1) * 100) if cp.get("grand_total", 0) > 0 else 0
+        percent_total = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost", 0) > 0 else 0
         writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_sf, percent_total])
+    writer.writerow([])
+
+    writer.writerow(["Detailed IGR Itemized Costs"])
+    writer.writerow(
+        ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost"])
+    igr_items = cp.get("igr_itemized_costs", [])
+    for item in igr_items:
+        category = item.get("Category", "")
+        material = item.get("Selected Material", "")
+        unit_cost = item.get("Unit Cost", 0)
+        calc_text = item.get("Calculation", "")
+        cost = item.get("Cost ($)", 0)
+        cost_per_sf = cost / cp.get("igr_total_area", 1) if cp.get("igr_total_area", 0) > 0 else 0
+        percent_total = (cost / cp.get("igr_material_total_cost", 1) * 100) if cp.get("igr_material_total_cost",
+                                                                                      0) > 0 else 0
+        writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_sf, percent_total])
+    writer.writerow([])
 
     return output.getvalue()
 
