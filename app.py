@@ -12,7 +12,8 @@ app = Flask(__name__)
 app.secret_key = "Ti5om4gm!"  # Replace with a secure random key
 
 # Database Configuration (update with your actual connection string)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
+app.config[
+    'SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize the database
@@ -193,7 +194,8 @@ def summary():
         return total_area, total_perimeter, total_vertical, total_horizontal, total_quantity
 
     swr_area, swr_perimeter, swr_vertical, swr_horizontal, swr_quantity = compute_totals(df_swr)
-    igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = compute_totals(df_igr) if not df_igr.empty else (0, 0, 0, 0, 0)
+    igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = compute_totals(
+        df_igr) if not df_igr.empty else (0, 0, 0, 0, 0)
 
     cp['swr_total_area'] = swr_area
     cp['swr_total_perimeter'] = swr_perimeter
@@ -264,11 +266,13 @@ def materials():
         materials_glass_protection = Material.query.filter_by(category=7).all()
         materials_tape = Material.query.filter_by(category=10).all()
         materials_head_retainers = Material.query.filter_by(category=17).all()
+        # New: Fetch screws (Category 18)
+        materials_screws = Material.query.filter_by(category=18).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
     if request.method == 'POST':
-        # Retrieve yield values (with defaults)
+        # Retrieve yield values
         try:
             yield_cat15 = float(request.form.get('yield_cat15', 0.97))
         except:
@@ -324,10 +328,11 @@ def materials():
         glass_protection_side = request.form.get('glass_protection_side')
         selected_glass_protection = request.form.get('material_glass_protection')
         retainer_attachment_option = request.form.get('retainer_attachment_option')
-        # Rename Nails to Screws
-        screws_option = request.form.get('screws_option')
         selected_tape = request.form.get('material_tape')
         selected_head_retainers = request.form.get('material_head_retainers')
+        # New: Retrieve screws option and selected screws material
+        screws_option = request.form.get('screws_option')
+        selected_screws = request.form.get('material_screws')
 
         mat_glass = Material.query.get(selected_glass) if selected_glass else None
         mat_aluminum = Material.query.get(selected_aluminum) if selected_aluminum else None
@@ -337,10 +342,13 @@ def materials():
         mat_corner_keys = Material.query.get(selected_corner_keys) if selected_corner_keys else None
         mat_dual_lock = Material.query.get(selected_dual_lock) if selected_dual_lock else None
         mat_foam_baffle_top = Material.query.get(selected_foam_baffle_top) if selected_foam_baffle_top else None
-        mat_foam_baffle_bottom = Material.query.get(selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
+        mat_foam_baffle_bottom = Material.query.get(
+            selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
         mat_glass_protection = Material.query.get(selected_glass_protection) if selected_glass_protection else None
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
         mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
+        # New: Retrieve screws material
+        mat_screws = Material.query.get(selected_screws) if selected_screws else None
 
         total_area = cp.get('swr_total_area', 0)
         total_perimeter = cp.get('swr_total_perimeter', 0)
@@ -360,12 +368,15 @@ def materials():
         cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_cat3 if mat_gaskets else 0
         cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_cat4 if mat_corner_keys else 0
         cost_dual_lock = (total_quantity * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
-        cost_foam_baffle_top = (0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6 if mat_foam_baffle_top else 0
-        cost_foam_baffle_bottom = (0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6 if mat_foam_baffle_bottom else 0
+        cost_foam_baffle_top = (
+                                           0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6 if mat_foam_baffle_top else 0
+        cost_foam_baffle_bottom = (
+                                              0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6 if mat_foam_baffle_bottom else 0
         if glass_protection_side == "one":
             cost_glass_protection = (total_area * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
         elif glass_protection_side == "double":
-            cost_glass_protection = (total_area * mat_glass_protection.cost * 2) / yield_cat7 if mat_glass_protection else 0
+            cost_glass_protection = (
+                                                total_area * mat_glass_protection.cost * 2) / yield_cat7 if mat_glass_protection else 0
         elif glass_protection_side == "none":
             cost_glass_protection = 0
         else:
@@ -381,11 +392,20 @@ def materials():
                 cost_tape = 0
         else:
             cost_tape = 0
-        cost_head_retainers = ((total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
+        cost_head_retainers = ((
+                                           total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
+
+        # New: Calculate screws cost based on the selected option
+        if screws_option == "head_retainer":
+            cost_screws = (0.5 * total_horizontal * 4 * (mat_screws.cost if mat_screws else 0))
+        elif screws_option == "head_and_sill":
+            cost_screws = (total_horizontal * 4 * (mat_screws.cost if mat_screws else 0))
+        else:
+            cost_screws = 0
 
         total_material_cost = (cost_glass + cost_aluminum + cost_retainer + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle_top + cost_foam_baffle_bottom +
-                               cost_glass_protection + cost_tape + cost_head_retainers)
+                               cost_glass_protection + cost_tape + cost_head_retainers + cost_screws)
         cp['material_total_cost'] = total_material_cost
 
         materials_list = [
@@ -405,13 +425,15 @@ def materials():
             },
             {
                 "Category": "Retainer (Cat 1)",
-                "Selected Material": (mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
+                "Selected Material": (
+                    mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
                 "Unit Cost": (mat_retainer.cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
-                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_aluminum}"
-                                if retainer_option == "head_retainer"
-                                else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_aluminum}"
-                                      if retainer_option == "head_and_sill"
-                                      else "No Retainer")),
+                "Calculation": (
+                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_aluminum}"
+                    if retainer_option == "head_retainer"
+                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_aluminum}"
+                          if retainer_option == "head_and_sill"
+                          else "No Retainer")),
                 "Cost ($)": cost_retainer
             },
             {
@@ -476,6 +498,18 @@ def materials():
                     else ("(Head+Sill - Full Horizontal)" if retainer_attachment_option == "head_sill" else "No Tape")),
                 "Cost ($)": cost_tape
             },
+            # New: Screws cost breakdown
+            {
+                "Category": "Screws (Cat 18)",
+                "Selected Material": mat_screws.nickname if mat_screws else "N/A",
+                "Unit Cost": mat_screws.cost if mat_screws else 0,
+                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × 4 × Cost"
+                                if screws_option == "head_retainer"
+                                else (f"Head + Sill: Total Horizontal {total_horizontal:.2f} × 4 × Cost"
+                                      if screws_option == "head_and_sill"
+                                      else "No Screws")),
+                "Cost ($)": cost_screws
+            },
             {
                 "Category": "Head Retainers (Cat 17)",
                 "Selected Material": mat_head_retainers.nickname if mat_head_retainers else "N/A",
@@ -488,7 +522,8 @@ def materials():
         for item in materials_list:
             cost = item["Cost ($)"]
             item["$ per SF"] = cost / total_area if total_area > 0 else 0
-            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost", 0) > 0 else 0
+            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost",
+                                                                                             0) > 0 else 0
 
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
@@ -527,7 +562,8 @@ def materials():
             options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
         return options
 
-    return f"""
+    # Build the HTML form with the new screws fields added
+    form_html = f"""
     <html>
       <head>
          <title>SWR Materials</title>
@@ -571,13 +607,19 @@ def materials():
                      {generate_options(materials_aluminum)}
                   </select>
                </div>
-               <!-- Rename Nails to Screws -->
+               <!-- New: Screws selection -->
                <div>
-                  <label for="screws_option">Screws:</label>
+                  <label for="screws_option">Screws Option:</label>
                   <select name="screws_option" id="screws_option" required>
                      <option value="none" selected>None</option>
                      <option value="head_retainer">Head Retainer</option>
                      <option value="head_and_sill">Head + Sill</option>
+                  </select>
+               </div>
+               <div>
+                  <label for="material_screws">Select Screws:</label>
+                  <select name="material_screws" id="material_screws" required>
+                     {generate_options(materials_screws)}
                   </select>
                </div>
                <div>
@@ -1192,7 +1234,8 @@ def create_final_export_excel(margins_dict=None):
         row += 1
 
     start_row = 9
-    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost"]
+    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF",
+                      "% Total Cost"]
     for col, header in enumerate(headers_detail):
         ws.write(start_row, col, header)
     line_items = cp.get("itemized_costs", [])
