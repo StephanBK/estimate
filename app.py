@@ -104,6 +104,8 @@ common_css = """
 def index():
     cp = get_current_project()
     if request.method == 'POST':
+        # New: Customer Name is the first input
+        cp['customer_name'] = request.form['customer_name']
         cp['project_name'] = request.form['project_name']
         cp['project_number'] = request.form['project_number']
         cp['swr_system'] = request.form['swr_system']
@@ -128,6 +130,10 @@ def index():
             <h2>Project Input Form</h2>
             <form method="POST" enctype="multipart/form-data">
                <div>
+                  <label for="customer_name">Customer Name:</label>
+                  <input type="text" id="customer_name" name="customer_name" required>
+               </div>
+               <div>
                   <label for="project_name">Project Name:</label>
                   <input type="text" id="project_name" name="project_name" required>
                </div>
@@ -143,7 +149,7 @@ def index():
                       <option value="SWR-VIG">SWR-VIG</option>
                   </select>
                </div>
-               <!-- IGR Type Toggle with same width as SWR System -->
+               <!-- IGR Type Toggle -->
                <div>
                   <label for="igr_type">IGR Type:</label>
                   <select name="igr_type" id="igr_type" style="width:200px;" required>
@@ -182,6 +188,7 @@ def summary():
         df = pd.read_csv(file_path)
     except Exception as e:
         return f"<h2 style='color: red;'>Error reading the file: {e}</h2>"
+    # Process CSV into SWR and IGR data (if Type column exists)
     if "Type" in df.columns:
         df_swr = df[df["Type"].str.upper() == "SWR"]
         df_igr = df[df["Type"].str.upper() == "IGR"]
@@ -219,6 +226,8 @@ def summary():
     cp['igr_total_quantity'] = igr_quantity
     save_current_project(cp)
 
+    # Always go to SWR Materials page next
+    next_page = '/materials'
     summary_html = f"""
     <html>
       <head>
@@ -228,6 +237,7 @@ def summary():
       <body>
          <div class="container">
             <h2>Project Summary</h2>
+            <p><strong>Customer Name:</strong> {cp.get('customer_name', 'N/A')}</p>
             <p><strong>Project Name:</strong> {cp.get('project_name')}</p>
             <p><strong>Project Number:</strong> {cp.get('project_number')}</p>
             <h3>SWR Totals</h3>
@@ -250,7 +260,7 @@ def summary():
             </table>
             <div class="btn-group">
               <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
-              <button type="button" class="btn" onclick="window.location.href='/materials'">Next: SWR Materials</button>
+              <button type="button" class="btn" onclick="window.location.href='{next_page}'">Next: SWR Materials</button>
             </div>
          </div>
       </body>
@@ -260,7 +270,7 @@ def summary():
 
 
 # =========================
-# SWR MATERIALS PAGE (Updated: Retainer Material now from Category 17)
+# SWR MATERIALS PAGE (Always shown)
 # =========================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials():
@@ -275,7 +285,6 @@ def materials():
         materials_foam_baffle = Material.query.filter_by(category=6).all()
         materials_glass_protection = Material.query.filter_by(category=7).all()
         materials_tape = Material.query.filter_by(category=10).all()
-        # For retainer material, pull from Category 17
         materials_head_retainers = Material.query.filter_by(category=17).all()
         materials_screws = Material.query.filter_by(category=18).all()
     except Exception as e:
@@ -329,6 +338,11 @@ def materials():
         selected_retainer = request.form.get('material_retainer')
         selected_glazing = request.form.get('material_glazing')
         selected_gaskets = request.form.get('material_gaskets')
+        # New toggles under Gaskets:
+        jamb_plate = request.form.get('jamb_plate')
+        jamb_plate_screws = request.form.get('jamb_plate_screws')
+        cp['jamb_plate'] = jamb_plate
+        cp['jamb_plate_screws'] = jamb_plate_screws
         selected_corner_keys = request.form.get('material_corner_keys')
         selected_dual_lock = request.form.get('material_dual_lock')
         selected_foam_baffle_top = request.form.get('material_foam_baffle')
@@ -595,16 +609,16 @@ def materials():
                      <option value="no_retainer">No Retainer</option>
                   </select>
                </div>
-               <!-- Retainer Material now from Category 17 -->
+               <!-- Retainer Material from Category 17 -->
                <div>
                   <label for="material_retainer">Select Retainer Material:</label>
                   <select name="material_retainer" id="material_retainer" required>
                      {generate_options(materials_head_retainers)}
                   </select>
                </div>
-               <!-- Screws selection -->
+               <!-- Rename "Select Screws" to "Retainer Screws Option" -->
                <div>
-                  <label for="screws_option">Screws Option:</label>
+                  <label for="screws_option">Retainer Screws Option:</label>
                   <select name="screws_option" id="screws_option" required>
                      <option value="none" selected>None</option>
                      <option value="head_retainer">Head Retainer</option>
@@ -612,7 +626,7 @@ def materials():
                   </select>
                </div>
                <div>
-                  <label for="material_screws">Select Screws:</label>
+                  <label for="material_screws">Retainer Screws Option:</label>
                   <select name="material_screws" id="material_screws" required>
                      {generate_options(materials_screws)}
                   </select>
@@ -635,6 +649,21 @@ def materials():
                   <label for="material_gaskets">Select Gaskets:</label>
                   <select name="material_gaskets" id="material_gaskets" required>
                      {generate_options(materials_gaskets)}
+                  </select>
+               </div>
+               <!-- New toggles under Gaskets -->
+               <div>
+                  <label for="jamb_plate">Jamb Plate:</label>
+                  <select name="jamb_plate" id="jamb_plate" required>
+                     <option value="Yes">Yes</option>
+                     <option value="No" selected>No</option>
+                  </select>
+               </div>
+               <div>
+                  <label for="jamb_plate_screws">Jamb Plate Screws:</label>
+                  <select name="jamb_plate_screws" id="jamb_plate_screws" required>
+                     <option value="Yes">Yes</option>
+                     <option value="No" selected>No</option>
                   </select>
                </div>
                <div>
@@ -732,18 +761,16 @@ def materials():
 
 
 # =========================
-# IGR MATERIALS PAGE (New)
+# IGR MATERIALS PAGE (Always shown)
 # =========================
 @app.route('/igr_materials', methods=['GET', 'POST'])
 def igr_materials():
     cp = get_current_project()
     try:
-        # For IGR, we reuse some categories but remove those not needed.
         igr_glass = Material.query.filter_by(category=15).all()
         igr_extrusions = Material.query.filter_by(category=1).all()
         igr_gaskets = Material.query.filter_by(category=3).all()
         igr_glass_protection = Material.query.filter_by(category=7).all()
-        # Tapes for IGR come from category 10.
         igr_tape = Material.query.filter_by(category=10).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching IGR materials: {e}</h2>"
@@ -998,7 +1025,6 @@ def other_costs():
         total_truck_cost = num_trucks * cost_per_truck
 
         hourly_rate = float(request.form.get('hourly_rate', 0))
-        # Allow float values for hours per panel by setting step=0.01 in the form
         hours_per_panel = float(request.form.get('hours_per_panel', 0))
         installation_cost = hourly_rate * hours_per_panel * total_quantity
 
@@ -1074,7 +1100,7 @@ def other_costs():
         """
         return result_html
 
-    return f"""
+    form_html = f"""
     <html>
       <head>
          <title>Other Costs</title>
@@ -1096,7 +1122,6 @@ def other_costs():
                 <label for="hourly_rate">Hourly Rate ($/hr):</label>
                 <input type="number" step="1" id="hourly_rate" name="hourly_rate" value="0" required>
               </div>
-              <!-- Updated: Allow float values for Hours per Panel -->
               <div>
                 <label for="hours_per_panel">Hours per Panel:</label>
                 <input type="number" step="0.01" id="hours_per_panel" name="hours_per_panel" value="0" required>
@@ -1381,12 +1406,13 @@ def create_final_summary_csv():
     cp = get_current_project()
     output = io.StringIO()
     writer = csv.writer(output)
-    project_name = cp.get("project_name", "Unnamed Project")
-    project_number = cp.get("project_number", "")
-    current_date = datetime.datetime.now().strftime("%Y-%m-%d")
-    writer.writerow(["Project Name:", project_name])
-    writer.writerow(["Project Number:", project_number])
-    writer.writerow(["Date:", current_date])
+    # Write Customer Name, then Project Name and Number, and new toggles
+    writer.writerow(["Customer Name:", cp.get("customer_name", "N/A")])
+    writer.writerow(["Project Name:", cp.get("project_name", "Unnamed Project")])
+    writer.writerow(["Project Number:", cp.get("project_number", "")])
+    writer.writerow(["Jamb Plate:", cp.get("jamb_plate", "No")])
+    writer.writerow(["Jamb Plate Screws:", cp.get("jamb_plate_screws", "No")])
+    writer.writerow(["Date:", datetime.datetime.now().strftime("%Y-%m-%d")])
     writer.writerow([])
 
     swr_panels = cp.get("swr_total_quantity", 0)
@@ -1466,12 +1492,14 @@ def create_final_export_excel(margins_dict=None):
     workbook = writer.book
     ws = workbook.add_worksheet("Project Export")
 
-    ws.write("A1", "Project Name:")
-    ws.write("B1", cp.get("project_name", "Unnamed Project"))
-    ws.write("A2", "Project Number:")
-    ws.write("B2", cp.get("project_number", ""))
-    ws.write("A3", "Date:")
-    ws.write("B3", datetime.datetime.now().strftime("%Y-%m-%d"))
+    ws.write("A1", "Customer Name:")
+    ws.write("B1", cp.get("customer_name", "N/A"))
+    ws.write("A2", "Project Name:")
+    ws.write("B2", cp.get("project_name", "Unnamed Project"))
+    ws.write("A3", "Project Number:")
+    ws.write("B3", cp.get("project_number", ""))
+    ws.write("A4", "Date:")
+    ws.write("B4", datetime.datetime.now().strftime("%Y-%m-%d"))
 
     ws.write("D1", "Combined Totals")
     ws.write("D2", "Panels")
