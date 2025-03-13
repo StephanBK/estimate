@@ -12,8 +12,7 @@ app = Flask(__name__)
 app.secret_key = "Ti5om4gm!"  # Replace with a secure random key
 
 # Database Configuration (update with your actual connection string)
-app.config[
-    'SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://u7vukdvn20pe3c:p918802c410825b956ccf24c5af8d168b4d9d69e1940182bae9bd8647eb606845@cb5ajfjosdpmil.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/dcobttk99a5sie'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize the database
@@ -211,8 +210,7 @@ def summary():
         return total_area, total_perimeter, total_vertical, total_horizontal, total_quantity
 
     swr_area, swr_perimeter, swr_vertical, swr_horizontal, swr_quantity = compute_totals(df_swr)
-    igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = compute_totals(
-        df_igr) if not df_igr.empty else (0, 0, 0, 0, 0)
+    igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = compute_totals(df_igr) if not df_igr.empty else (0, 0, 0, 0, 0)
 
     cp['swr_total_area'] = swr_area
     cp['swr_total_perimeter'] = swr_perimeter
@@ -363,8 +361,7 @@ def materials():
         mat_corner_keys = Material.query.get(selected_corner_keys) if selected_corner_keys else None
         mat_dual_lock = Material.query.get(selected_dual_lock) if selected_dual_lock else None
         mat_foam_baffle_top = Material.query.get(selected_foam_baffle_top) if selected_foam_baffle_top else None
-        mat_foam_baffle_bottom = Material.query.get(
-            selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
+        mat_foam_baffle_bottom = Material.query.get(selected_foam_baffle_bottom) if selected_foam_baffle_bottom else None
         mat_glass_protection = Material.query.get(selected_glass_protection) if selected_glass_protection else None
         mat_tape = Material.query.get(selected_tape) if selected_tape else None
         mat_head_retainers = Material.query.get(selected_head_retainers) if selected_head_retainers else None
@@ -376,49 +373,45 @@ def materials():
         total_horizontal = cp.get('swr_total_horizontal_ft', 0)
         total_quantity = cp.get('swr_total_quantity', 0)
 
-        cost_glass = (total_area * mat_glass.cost) / yield_cat15 if mat_glass else 0
-        cost_aluminum = (total_perimeter * mat_aluminum.cost) / yield_aluminum if mat_aluminum else 0
+        cost_glass = (total_area * mat_glass.yield_cost) / yield_cat15 if mat_glass else 0
+        cost_aluminum = (total_perimeter * mat_aluminum.yield_cost) / yield_aluminum if mat_aluminum else 0
         if retainer_option == "head_retainer":
-            cost_retainer = (0.5 * total_horizontal * mat_retainer.cost) / yield_aluminum if mat_retainer else 0
+            cost_retainer = (0.5 * total_horizontal * mat_retainer.yield_cost) / yield_aluminum if mat_retainer else 0
         elif retainer_option == "head_and_sill":
-            cost_retainer = (total_horizontal * mat_retainer.cost * yield_aluminum) if mat_retainer else 0
+            cost_retainer = (total_horizontal * mat_retainer.yield_cost * yield_aluminum) if mat_retainer else 0
         else:
             cost_retainer = 0
-        cost_glazing = (total_perimeter * mat_glazing.cost) / yield_cat2 if mat_glazing else 0
-        cost_gaskets = (total_vertical * mat_gaskets.cost) / yield_cat3 if mat_gaskets else 0
-        cost_corner_keys = (total_quantity * 4 * mat_corner_keys.cost) / yield_cat4 if mat_corner_keys else 0
-        cost_dual_lock = (total_quantity * mat_dual_lock.cost) / yield_cat5 if mat_dual_lock else 0
-        cost_foam_baffle_top = (
-                                           0.5 * total_horizontal * mat_foam_baffle_top.cost) / yield_cat6 if mat_foam_baffle_top else 0
-        cost_foam_baffle_bottom = (
-                                              0.5 * total_horizontal * mat_foam_baffle_bottom.cost) / yield_cat6 if mat_foam_baffle_bottom else 0
+        cost_glazing = (total_perimeter * mat_glazing.yield_cost) / yield_cat2 if mat_glazing else 0
+        cost_gaskets = (total_vertical * mat_gaskets.yield_cost) / yield_cat3 if mat_gaskets else 0
+        cost_corner_keys = (total_quantity * 4 * mat_corner_keys.yield_cost) / yield_cat4 if mat_corner_keys else 0
+        cost_dual_lock = (total_quantity * mat_dual_lock.yield_cost) / yield_cat5 if mat_dual_lock else 0
+        cost_foam_baffle_top = (0.5 * total_horizontal * mat_foam_baffle_top.yield_cost) / yield_cat6 if mat_foam_baffle_top else 0
+        cost_foam_baffle_bottom = (0.5 * total_horizontal * mat_foam_baffle_bottom.yield_cost) / yield_cat6 if mat_foam_baffle_bottom else 0
         if glass_protection_side == "one":
-            cost_glass_protection = (total_area * mat_glass_protection.cost) / yield_cat7 if mat_glass_protection else 0
+            cost_glass_protection = (total_area * mat_glass_protection.yield_cost) / yield_cat7 if mat_glass_protection else 0
         elif glass_protection_side == "double":
-            cost_glass_protection = (
-                                                total_area * mat_glass_protection.cost * 2) / yield_cat7 if mat_glass_protection else 0
+            cost_glass_protection = (total_area * mat_glass_protection.yield_cost * 2) / yield_cat7 if mat_glass_protection else 0
         elif glass_protection_side == "none":
             cost_glass_protection = 0
         else:
             cost_glass_protection = 0
         if mat_tape:
             if retainer_attachment_option == 'head_retainer':
-                cost_tape = ((total_horizontal / 2) * mat_tape.cost) / yield_cat10
+                cost_tape = ((total_horizontal / 2) * mat_tape.yield_cost) / yield_cat10
             elif retainer_attachment_option == 'head_sill':
-                cost_tape = (total_horizontal * mat_tape.cost) / yield_cat10
+                cost_tape = (total_horizontal * mat_tape.yield_cost) / yield_cat10
             elif retainer_attachment_option == 'no_tape':
                 cost_tape = 0
             else:
                 cost_tape = 0
         else:
             cost_tape = 0
-        cost_head_retainers = ((
-                                           total_horizontal / 2) * mat_head_retainers.cost) / yield_cat17 if mat_head_retainers else 0
+        cost_head_retainers = ((total_horizontal / 2) * mat_head_retainers.yield_cost) / yield_cat17 if mat_head_retainers else 0
 
         if screws_option == "head_retainer":
-            cost_screws = (0.5 * total_horizontal * 4 * (mat_screws.cost if mat_screws else 0))
+            cost_screws = (0.5 * total_horizontal * 4 * (mat_screws.yield_cost if mat_screws else 0))
         elif screws_option == "head_and_sill":
-            cost_screws = (total_horizontal * 4 * (mat_screws.cost if mat_screws else 0))
+            cost_screws = (total_horizontal * 4 * (mat_screws.yield_cost if mat_screws else 0))
         else:
             cost_screws = 0
 
@@ -431,26 +424,25 @@ def materials():
             {
                 "Category": "Glass (Cat 15)",
                 "Selected Material": mat_glass.nickname if mat_glass else "N/A",
-                "Unit Cost": mat_glass.cost if mat_glass else 0,
-                "Calculation": f"Total Area {total_area:.2f} × Cost / {yield_cat15}",
+                "Unit Cost": mat_glass.yield_cost if mat_glass else 0,
+                "Calculation": f"Total Area {total_area:.2f} × Yield Cost / {yield_cat15}",
                 "Cost ($)": cost_glass
             },
             {
                 "Category": "Extrusions (Cat 1)",
                 "Selected Material": mat_aluminum.nickname if mat_aluminum else "N/A",
-                "Unit Cost": mat_aluminum.cost if mat_aluminum else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_aluminum}",
+                "Unit Cost": mat_aluminum.yield_cost if mat_aluminum else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {yield_aluminum}",
                 "Cost ($)": cost_aluminum
             },
             {
                 "Category": "Retainer (Cat 17)",
-                "Selected Material": (
-                    mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
-                "Unit Cost": (mat_retainer.cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
+                "Selected Material": (mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
+                "Unit Cost": (mat_retainer.yield_cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
                 "Calculation": (
-                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_aluminum}"
+                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {yield_aluminum}"
                     if retainer_option == "head_retainer"
-                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Cost × {yield_aluminum}"
+                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Yield Cost × {yield_aluminum}"
                           if retainer_option == "head_and_sill"
                           else "No Retainer")),
                 "Cost ($)": cost_retainer
@@ -458,52 +450,52 @@ def materials():
             {
                 "Category": "Glazing Spline (Cat 2)",
                 "Selected Material": mat_glazing.nickname if mat_glazing else "N/A",
-                "Unit Cost": mat_glazing.cost if mat_glazing else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_cat2}",
+                "Unit Cost": mat_glazing.yield_cost if mat_glazing else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {yield_cat2}",
                 "Cost ($)": cost_glazing
             },
             {
                 "Category": "Gaskets (Cat 3)",
                 "Selected Material": mat_gaskets.nickname if mat_gaskets else "N/A",
-                "Unit Cost": mat_gaskets.cost if mat_gaskets else 0,
-                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / {yield_cat3}",
+                "Unit Cost": mat_gaskets.yield_cost if mat_gaskets else 0,
+                "Calculation": f"Total Vertical {total_vertical:.2f} × Yield Cost / {yield_cat3}",
                 "Cost ($)": cost_gaskets
             },
             {
                 "Category": "Corner Keys (Cat 4)",
                 "Selected Material": mat_corner_keys.nickname if mat_corner_keys else "N/A",
-                "Unit Cost": mat_corner_keys.cost if mat_corner_keys else 0,
-                "Calculation": f"Total Quantity {total_quantity:.2f} × 4 × Cost / {yield_cat4}",
+                "Unit Cost": mat_corner_keys.yield_cost if mat_corner_keys else 0,
+                "Calculation": f"Total Quantity {total_quantity:.2f} × 4 × Yield Cost / {yield_cat4}",
                 "Cost ($)": cost_corner_keys
             },
             {
                 "Category": "Dual Lock (Cat 5)",
                 "Selected Material": mat_dual_lock.nickname if mat_dual_lock else "N/A",
-                "Unit Cost": mat_dual_lock.cost if mat_dual_lock else 0,
-                "Calculation": f"Total Quantity {total_quantity:.2f} × Cost / {yield_cat5}",
+                "Unit Cost": mat_dual_lock.yield_cost if mat_dual_lock else 0,
+                "Calculation": f"Total Quantity {total_quantity:.2f} × Yield Cost / {yield_cat5}",
                 "Cost ($)": cost_dual_lock
             },
             {
                 "Category": "Foam Baffle Top/Head (Cat 6)",
                 "Selected Material": mat_foam_baffle_top.nickname if mat_foam_baffle_top else "N/A",
-                "Unit Cost": mat_foam_baffle_top.cost if mat_foam_baffle_top else 0,
-                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat6}",
+                "Unit Cost": mat_foam_baffle_top.yield_cost if mat_foam_baffle_top else 0,
+                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {yield_cat6}",
                 "Cost ($)": cost_foam_baffle_top
             },
             {
                 "Category": "Foam Baffle Bottom/Sill (Cat 6)",
                 "Selected Material": mat_foam_baffle_bottom.nickname if mat_foam_baffle_bottom else "N/A",
-                "Unit Cost": mat_foam_baffle_bottom.cost if mat_foam_baffle_bottom else 0,
-                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Cost / {yield_cat6}",
+                "Unit Cost": mat_foam_baffle_bottom.yield_cost if mat_foam_baffle_bottom else 0,
+                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {yield_cat6}",
                 "Cost ($)": cost_foam_baffle_bottom
             },
             {
                 "Category": "Glass Protection (Cat 7)",
                 "Selected Material": mat_glass_protection.nickname if mat_glass_protection else "N/A",
-                "Unit Cost": mat_glass_protection.cost if mat_glass_protection else 0,
-                "Calculation": (f"Total Area {total_area:.2f} × Cost / {yield_cat7}"
+                "Unit Cost": mat_glass_protection.yield_cost if mat_glass_protection else 0,
+                "Calculation": (f"Total Area {total_area:.2f} × Yield Cost / {yield_cat7}"
                                 if glass_protection_side == "one"
-                                else (f"Total Area {total_area:.2f} × Cost × 2 / {yield_cat7}"
+                                else (f"Total Area {total_area:.2f} × Yield Cost × 2 / {yield_cat7}"
                                       if glass_protection_side == "double"
                                       else "No Film")),
                 "Cost ($)": cost_glass_protection
@@ -511,7 +503,7 @@ def materials():
             {
                 "Category": "Tape (Cat 10)",
                 "Selected Material": mat_tape.nickname if mat_tape else "N/A",
-                "Unit Cost": mat_tape.cost if mat_tape else 0,
+                "Unit Cost": mat_tape.yield_cost if mat_tape else 0,
                 "Calculation": "Retainer Attachment Option: " + (
                     "(Head Retainer - Half Horizontal)" if retainer_attachment_option == "head_retainer"
                     else ("(Head+Sill - Full Horizontal)" if retainer_attachment_option == "head_sill" else "No Tape")),
@@ -520,10 +512,10 @@ def materials():
             {
                 "Category": "Screws (Cat 18)",
                 "Selected Material": mat_screws.nickname if mat_screws else "N/A",
-                "Unit Cost": mat_screws.cost if mat_screws else 0,
-                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × 4 × Cost"
+                "Unit Cost": mat_screws.yield_cost if mat_screws else 0,
+                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × 4 × Yield Cost"
                                 if screws_option == "head_retainer"
-                                else (f"Head + Sill: Total Horizontal {total_horizontal:.2f} × 4 × Cost"
+                                else (f"Head + Sill: Total Horizontal {total_horizontal:.2f} × 4 × Yield Cost"
                                       if screws_option == "head_and_sill"
                                       else "No Screws")),
                 "Cost ($)": cost_screws
@@ -532,8 +524,7 @@ def materials():
         for item in materials_list:
             cost = item["Cost ($)"]
             item["$ per SF"] = cost / total_area if total_area > 0 else 0
-            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost",
-                                                                                             0) > 0 else 0
+            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost", 0) > 0 else 0
 
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
@@ -568,7 +559,7 @@ def materials():
     def generate_options(materials_list):
         options = ""
         for m in materials_list:
-            options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
+            options += f'<option value="{m.id}">{m.nickname} - ${m.yield_cost:.2f}</option>'
         return options
 
     form_html = f"""
@@ -616,7 +607,7 @@ def materials():
                      {generate_options(materials_head_retainers)}
                   </select>
                </div>
-               <!-- Rename "Select Screws" to "Retainer Screws Option" -->
+               <!-- Retainer Screws Option -->
                <div>
                   <label for="screws_option">Retainer Screws Option:</label>
                   <select name="screws_option" id="screws_option" required>
@@ -626,7 +617,7 @@ def materials():
                   </select>
                </div>
                <div>
-                  <label for="material_screws">Retainer Screws Option:</label>
+                  <label for="material_screws">Select Retainer Screws:</label>
                   <select name="material_screws" id="material_screws" required>
                      {generate_options(materials_screws)}
                   </select>
@@ -811,32 +802,25 @@ def igr_materials():
         mat_igr_glass = Material.query.get(selected_igr_glass) if selected_igr_glass else None
         mat_igr_extrusions = Material.query.get(selected_igr_extrusions) if selected_igr_extrusions else None
         mat_igr_gaskets = Material.query.get(selected_igr_gaskets) if selected_igr_gaskets else None
-        mat_igr_glass_protection = Material.query.get(
-            selected_igr_glass_protection) if selected_igr_glass_protection else None
-        mat_igr_perimeter_tape = Material.query.get(
-            selected_igr_perimeter_tape) if selected_igr_perimeter_tape else None
-        mat_igr_structural_tape = Material.query.get(
-            selected_igr_structural_tape) if selected_igr_structural_tape else None
+        mat_igr_glass_protection = Material.query.get(selected_igr_glass_protection) if selected_igr_glass_protection else None
+        mat_igr_perimeter_tape = Material.query.get(selected_igr_perimeter_tape) if selected_igr_perimeter_tape else None
+        mat_igr_structural_tape = Material.query.get(selected_igr_structural_tape) if selected_igr_structural_tape else None
 
         total_area = cp.get('igr_total_area', 0)
         total_perimeter = cp.get('igr_total_perimeter', 0)
         total_vertical = cp.get('igr_total_vertical_ft', 0)
 
-        cost_igr_glass = (total_area * mat_igr_glass.cost) / yield_igr_glass if mat_igr_glass else 0
-        cost_igr_extrusions = (
-                                          total_perimeter * mat_igr_extrusions.cost) / yield_igr_extrusions if mat_igr_extrusions else 0
-        cost_igr_gaskets = (total_vertical * mat_igr_gaskets.cost) / yield_igr_gaskets if mat_igr_gaskets else 0
-        cost_igr_glass_protection = (
-                                                total_area * mat_igr_glass_protection.cost) / yield_igr_glass_protection if mat_igr_glass_protection else 0
+        cost_igr_glass = (total_area * mat_igr_glass.yield_cost) / yield_igr_glass if mat_igr_glass else 0
+        cost_igr_extrusions = (total_perimeter * mat_igr_extrusions.yield_cost) / yield_igr_extrusions if mat_igr_extrusions else 0
+        cost_igr_gaskets = (total_vertical * mat_igr_gaskets.yield_cost) / yield_igr_gaskets if mat_igr_gaskets else 0
+        cost_igr_glass_protection = (total_area * mat_igr_glass_protection.yield_cost) / yield_igr_glass_protection if mat_igr_glass_protection else 0
 
         if cp.get('igr_type') == "Dry Seal IGR":
             cost_igr_perimeter_tape = 0
         else:
-            cost_igr_perimeter_tape = (
-                                                  total_perimeter * mat_igr_perimeter_tape.cost) / yield_igr_perimeter_tape if mat_igr_perimeter_tape else 0
+            cost_igr_perimeter_tape = (total_perimeter * mat_igr_perimeter_tape.yield_cost) / yield_igr_perimeter_tape if mat_igr_perimeter_tape else 0
 
-        cost_igr_structural_tape = (
-                                               total_perimeter * mat_igr_structural_tape.cost) / yield_igr_structural_tape if mat_igr_structural_tape else 0
+        cost_igr_structural_tape = (total_perimeter * mat_igr_structural_tape.yield_cost) / yield_igr_structural_tape if mat_igr_structural_tape else 0
 
         total_igr_material_cost = (cost_igr_glass + cost_igr_extrusions + cost_igr_gaskets +
                                    cost_igr_glass_protection + cost_igr_perimeter_tape + cost_igr_structural_tape)
@@ -846,50 +830,49 @@ def igr_materials():
             {
                 "Category": "IGR Glass (Cat 15)",
                 "Selected Material": mat_igr_glass.nickname if mat_igr_glass else "N/A",
-                "Unit Cost": mat_igr_glass.cost if mat_igr_glass else 0,
-                "Calculation": f"Total Area {total_area:.2f} × Cost / {yield_igr_glass}",
+                "Unit Cost": mat_igr_glass.yield_cost if mat_igr_glass else 0,
+                "Calculation": f"Total Area {total_area:.2f} × Yield Cost / {yield_igr_glass}",
                 "Cost ($)": cost_igr_glass
             },
             {
                 "Category": "IGR Extrusions (Cat 1)",
                 "Selected Material": mat_igr_extrusions.nickname if mat_igr_extrusions else "N/A",
-                "Unit Cost": mat_igr_extrusions.cost if mat_igr_extrusions else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_igr_extrusions}",
+                "Unit Cost": mat_igr_extrusions.yield_cost if mat_igr_extrusions else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {yield_igr_extrusions}",
                 "Cost ($)": cost_igr_extrusions
             },
             {
                 "Category": "IGR Gaskets (Cat 3)",
                 "Selected Material": mat_igr_gaskets.nickname if mat_igr_gaskets else "N/A",
-                "Unit Cost": mat_igr_gaskets.cost if mat_igr_gaskets else 0,
-                "Calculation": f"Total Vertical {total_vertical:.2f} × Cost / {yield_igr_gaskets}",
+                "Unit Cost": mat_igr_gaskets.yield_cost if mat_igr_gaskets else 0,
+                "Calculation": f"Total Vertical {total_vertical:.2f} × Yield Cost / {yield_igr_gaskets}",
                 "Cost ($)": cost_igr_gaskets
             },
             {
                 "Category": "IGR Glass Protection (Cat 7)",
                 "Selected Material": mat_igr_glass_protection.nickname if mat_igr_glass_protection else "N/A",
-                "Unit Cost": mat_igr_glass_protection.cost if mat_igr_glass_protection else 0,
-                "Calculation": f"Total Area {total_area:.2f} × Cost / {yield_igr_glass_protection}",
+                "Unit Cost": mat_igr_glass_protection.yield_cost if mat_igr_glass_protection else 0,
+                "Calculation": f"Total Area {total_area:.2f} × Yield Cost / {yield_igr_glass_protection}",
                 "Cost ($)": cost_igr_glass_protection
             },
             {
                 "Category": "IGR Perimeter Butyl Tape (Cat 10)",
                 "Selected Material": mat_igr_perimeter_tape.nickname if mat_igr_perimeter_tape else "N/A",
-                "Unit Cost": mat_igr_perimeter_tape.cost if mat_igr_perimeter_tape else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_igr_perimeter_tape}",
+                "Unit Cost": mat_igr_perimeter_tape.yield_cost if mat_igr_perimeter_tape else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {yield_igr_perimeter_tape}",
                 "Cost ($)": cost_igr_perimeter_tape
             },
             {
                 "Category": "IGR Structural Glazing Tape (Cat 10)",
                 "Selected Material": mat_igr_structural_tape.nickname if mat_igr_structural_tape else "N/A",
-                "Unit Cost": mat_igr_structural_tape.cost if mat_igr_structural_tape else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Cost / {yield_igr_structural_tape}",
+                "Unit Cost": mat_igr_structural_tape.yield_cost if mat_igr_structural_tape else 0,
+                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {yield_igr_structural_tape}",
                 "Cost ($)": cost_igr_structural_tape
             }
         ]
         for item in igr_items:
             item["$ per SF"] = item["Cost ($)"] / total_area if total_area > 0 else 0
-            item["% Total Cost"] = (
-                        item["Cost ($)"] / total_igr_material_cost * 100) if total_igr_material_cost > 0 else 0
+            item["% Total Cost"] = (item["Cost ($)"] / total_igr_material_cost * 100) if total_igr_material_cost > 0 else 0
 
         cp["igr_itemized_costs"] = igr_items
         save_current_project(cp)
@@ -924,7 +907,7 @@ def igr_materials():
     def generate_options(materials_list):
         options = ""
         for m in materials_list:
-            options += f'<option value="{m.id}">{m.nickname} - ${m.cost:.2f}</option>'
+            options += f'<option value="{m.id}">{m.nickname} - ${m.yield_cost:.2f}</option>'
         return options
 
     form_html = f"""
@@ -1474,8 +1457,7 @@ def create_final_summary_csv():
         calc_text = item.get("Calculation", "")
         cost = item.get("Cost ($)", 0)
         cost_per_sf = cost / cp.get("igr_total_area", 1) if cp.get("igr_total_area", 0) > 0 else 0
-        percent_total = (cost / cp.get("igr_material_total_cost", 1) * 100) if cp.get("igr_material_total_cost",
-                                                                                      0) > 0 else 0
+        percent_total = (cost / cp.get("igr_material_total_cost", 1) * 100) if cp.get("igr_material_total_cost", 0) > 0 else 0
         writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_sf, percent_total])
     writer.writerow([])
 
