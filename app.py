@@ -18,14 +18,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Initialize the database
 db = SQLAlchemy(app)
 
-
 # Define the Material model (using 'nickname' for display)
 class Material(db.Model):
     __tablename__ = 'materials'
     id = db.Column(db.Integer, primary_key=True)
     category = db.Column(db.Integer, nullable=False)
     nickname = db.Column(db.String(100), nullable=False)
-    status = db.Column(db.String(50))
+    # Removed the 'status' column since it no longer exists.
     description = db.Column(db.Text)
     cost = db.Column(db.Float, nullable=False)
     cost_unit = db.Column(db.String(50))
@@ -40,6 +39,10 @@ class Material(db.Model):
     last_updated = db.Column(db.DateTime)
     manufacturer = db.Column(db.String(100))
     supplier = db.Column(db.String(100))
+    # New columns:
+    quantity = db.Column(db.Float)
+    min_lead = db.Column(db.Integer)
+    max_lead = db.Column(db.Integer)
 
 
 # Helper function: Recursively convert NumPy int64 (and similar types) to native Python int
@@ -103,12 +106,10 @@ common_css = """
 def index():
     cp = get_current_project()
     if request.method == 'POST':
-        # New: Customer Name is the first input
         cp['customer_name'] = request.form['customer_name']
         cp['project_name'] = request.form['project_name']
         cp['project_number'] = request.form['project_number']
         cp['swr_system'] = request.form['swr_system']
-        # Save the IGR type from the toggle (Wet Seal IGR or Dry Seal IGR)
         cp['igr_type'] = request.form['igr_type']
         file = request.files['file']
         if file:
@@ -148,7 +149,6 @@ def index():
                       <option value="SWR-VIG">SWR-VIG</option>
                   </select>
                </div>
-               <!-- IGR Type Toggle -->
                <div>
                   <label for="igr_type">IGR Type:</label>
                   <select name="igr_type" id="igr_type" style="width:200px;" required>
@@ -187,7 +187,6 @@ def summary():
         df = pd.read_csv(file_path)
     except Exception as e:
         return f"<h2 style='color: red;'>Error reading the file: {e}</h2>"
-    # Process CSV into SWR and IGR data (if Type column exists)
     if "Type" in df.columns:
         df_swr = df[df["Type"].str.upper() == "SWR"]
         df_igr = df[df["Type"].str.upper() == "IGR"]
@@ -224,7 +223,6 @@ def summary():
     cp['igr_total_quantity'] = igr_quantity
     save_current_project(cp)
 
-    # Always go to SWR Materials page next
     next_page = '/materials'
     summary_html = f"""
     <html>
@@ -336,7 +334,6 @@ def materials():
         selected_retainer = request.form.get('material_retainer')
         selected_glazing = request.form.get('material_glazing')
         selected_gaskets = request.form.get('material_gaskets')
-        # New toggles under Gaskets:
         jamb_plate = request.form.get('jamb_plate')
         jamb_plate_screws = request.form.get('jamb_plate_screws')
         cp['jamb_plate'] = jamb_plate
@@ -420,6 +417,69 @@ def materials():
                                cost_glass_protection + cost_tape + cost_head_retainers + cost_screws)
         cp['material_total_cost'] = total_material_cost
 
+        # Mapping to retrieve material objects per category
+        material_map = {
+            "Glass (Cat 15)": mat_glass,
+            "Extrusions (Cat 1)": mat_aluminum,
+            "Retainer (Cat 17)": mat_retainer,
+            "Glazing Spline (Cat 2)": mat_glazing,
+            "Gaskets (Cat 3)": mat_gaskets,
+            "Corner Keys (Cat 4)": mat_corner_keys,
+            "Dual Lock (Cat 5)": mat_dual_lock,
+            "Foam Baffle Top/Head (Cat 6)": mat_foam_baffle_top,
+            "Foam Baffle Bottom/Sill (Cat 6)": mat_foam_baffle_bottom,
+            "Glass Protection (Cat 7)": mat_glass_protection,
+            "Tape (Cat 10)": mat_tape,
+            "Screws (Cat 18)": mat_screws
+        }
+
+        # Helper: compute required quantity based on category
+        def get_required_quantity(category):
+            if category == "Glass (Cat 15)":
+                return total_area
+            elif category == "Extrusions (Cat 1)":
+                return total_perimeter
+            elif category == "Retainer (Cat 17)":
+                if retainer_option == "head_retainer":
+                    return 0.5 * total_horizontal
+                elif retainer_option == "head_and_sill":
+                    return total_horizontal
+                else:
+                    return 0
+            elif category == "Glazing Spline (Cat 2)":
+                return total_perimeter
+            elif category == "Gaskets (Cat 3)":
+                return total_vertical
+            elif category == "Corner Keys (Cat 4)":
+                return total_quantity * 4
+            elif category == "Dual Lock (Cat 5)":
+                return total_quantity
+            elif category == "Foam Baffle Top/Head (Cat 6)":
+                return 0.5 * total_horizontal
+            elif category == "Foam Baffle Bottom/Sill (Cat 6)":
+                return 0.5 * total_horizontal
+            elif category == "Glass Protection (Cat 7)":
+                if glass_protection_side == "double":
+                    return total_area * 2
+                else:
+                    return total_area
+            elif category == "Tape (Cat 10)":
+                if retainer_attachment_option == 'head_retainer':
+                    return total_horizontal / 2
+                elif retainer_attachment_option == 'head_sill':
+                    return total_horizontal
+                else:
+                    return 0
+            elif category == "Screws (Cat 18)":
+                if screws_option == "head_retainer":
+                    return 0.5 * total_horizontal * 4
+                elif screws_option == "head_and_sill":
+                    return total_horizontal * 4
+                else:
+                    return 0
+            else:
+                return 0
+
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -439,12 +499,11 @@ def materials():
                 "Category": "Retainer (Cat 17)",
                 "Selected Material": (mat_retainer.nickname if mat_retainer else "N/A") if retainer_option != "no_retainer" else "N/A",
                 "Unit Cost": (mat_retainer.yield_cost if mat_retainer else 0) if retainer_option != "no_retainer" else 0,
-                "Calculation": (
-                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {yield_aluminum}"
-                    if retainer_option == "head_retainer"
-                    else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Yield Cost × {yield_aluminum}"
-                          if retainer_option == "head_and_sill"
-                          else "No Retainer")),
+                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {yield_aluminum}"
+                                if retainer_option == "head_retainer"
+                                else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Yield Cost × {yield_aluminum}"
+                                      if retainer_option == "head_and_sill"
+                                      else "No Retainer")),
                 "Cost ($)": cost_retainer
             },
             {
@@ -521,17 +580,49 @@ def materials():
                 "Cost ($)": cost_screws
             },
         ]
+
+        # Add the new columns to each item: $ per SF, % Total Cost, Stock Level, Min Lead, Max Lead.
         for item in materials_list:
-            cost = item["Cost ($)"]
-            item["$ per SF"] = cost / total_area if total_area > 0 else 0
-            item["% Total Cost"] = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost", 0) > 0 else 0
+            req_qty = get_required_quantity(item["Category"])
+            mat_obj = material_map.get(item["Category"])
+            # Calculate stock percentage if possible
+            if mat_obj and req_qty > 0:
+                stock_pct = (mat_obj.quantity / req_qty) * 100
+            else:
+                stock_pct = 0
+            item["$ per SF"] = (item["Cost ($)"] / total_area if total_area > 0 else 0)
+            item["% Total Cost"] = (item["Cost ($)"] / cp.get("material_total_cost", 1) * 100 if cp.get("material_total_cost", 0) > 0 else 0)
+            item["Stock Level"] = f"{stock_pct:.2f}%"
+            if mat_obj:
+                item["Min Lead"] = mat_obj.min_lead if mat_obj.min_lead is not None else "N/A"
+                item["Max Lead"] = mat_obj.max_lead if mat_obj.max_lead is not None else "N/A"
+            else:
+                item["Min Lead"] = "N/A"
+                item["Max Lead"] = "N/A"
 
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
 
-        table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th><th>$ per SF</th><th>% Total Cost</th></tr>"
+        # Build table HTML with new column order:
+        # Category, Selected Material, Unit Cost, Calculation, Cost ($), $ per SF, % Total Cost, Stock Level, Min Lead, Max Lead.
+        table_html = "<table class='summary-table'><tr>"
+        headers = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead"]
+        for header in headers:
+            table_html += f"<th>{header}</th>"
+        table_html += "</tr>"
         for item in materials_list:
-            table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td><td>{item['$ per SF']:.2f}</td><td>{item['% Total Cost']:.2f}</td></tr>"
+            table_html += "<tr>"
+            table_html += f"<td>{item['Category']}</td>"
+            table_html += f"<td>{item['Selected Material']}</td>"
+            table_html += f"<td>{item['Unit Cost']:.2f}</td>"
+            table_html += f"<td>{item['Calculation']}</td>"
+            table_html += f"<td>{item['Cost ($)']:.2f}</td>"
+            table_html += f"<td>{item['$ per SF']:.2f}</td>"
+            table_html += f"<td>{item['% Total Cost']:.2f}</td>"
+            table_html += f"<td>{item['Stock Level']}</td>"
+            table_html += f"<td>{item['Min Lead']}</td>"
+            table_html += f"<td>{item['Max Lead']}</td>"
+            table_html += "</tr>"
         table_html += "</table>"
 
         cp["materials_breakdown"] = table_html
@@ -600,14 +691,12 @@ def materials():
                      <option value="no_retainer">No Retainer</option>
                   </select>
                </div>
-               <!-- Retainer Material from Category 17 -->
                <div>
                   <label for="material_retainer">Select Retainer Material:</label>
                   <select name="material_retainer" id="material_retainer" required>
                      {generate_options(materials_head_retainers)}
                   </select>
                </div>
-               <!-- Retainer Screws Option -->
                <div>
                   <label for="screws_option">Retainer Screws Option:</label>
                   <select name="screws_option" id="screws_option" required>
@@ -642,7 +731,6 @@ def materials():
                      {generate_options(materials_gaskets)}
                   </select>
                </div>
-               <!-- New toggles under Gaskets -->
                <div>
                   <label for="jamb_plate">Jamb Plate:</label>
                   <select name="jamb_plate" id="jamb_plate" required>
@@ -826,6 +914,32 @@ def igr_materials():
                                    cost_igr_glass_protection + cost_igr_perimeter_tape + cost_igr_structural_tape)
         cp['igr_material_total_cost'] = total_igr_material_cost
 
+        # Mapping for IGR materials
+        igr_material_map = {
+            "IGR Glass (Cat 15)": mat_igr_glass,
+            "IGR Extrusions (Cat 1)": mat_igr_extrusions,
+            "IGR Gaskets (Cat 3)": mat_igr_gaskets,
+            "IGR Glass Protection (Cat 7)": mat_igr_glass_protection,
+            "IGR Perimeter Butyl Tape (Cat 10)": mat_igr_perimeter_tape,
+            "IGR Structural Glazing Tape (Cat 10)": mat_igr_structural_tape
+        }
+
+        def get_igr_required_quantity(category):
+            if category == "IGR Glass (Cat 15)":
+                return total_area
+            elif category == "IGR Extrusions (Cat 1)":
+                return total_perimeter
+            elif category == "IGR Gaskets (Cat 3)":
+                return total_vertical
+            elif category == "IGR Glass Protection (Cat 7)":
+                return total_area
+            elif category == "IGR Perimeter Butyl Tape (Cat 10)":
+                return total_perimeter
+            elif category == "IGR Structural Glazing Tape (Cat 10)":
+                return total_perimeter
+            else:
+                return 0
+
         igr_items = [
             {
                 "Category": "IGR Glass (Cat 15)",
@@ -870,16 +984,45 @@ def igr_materials():
                 "Cost ($)": cost_igr_structural_tape
             }
         ]
+
         for item in igr_items:
-            item["$ per SF"] = item["Cost ($)"] / total_area if total_area > 0 else 0
-            item["% Total Cost"] = (item["Cost ($)"] / total_igr_material_cost * 100) if total_igr_material_cost > 0 else 0
+            req_qty = get_igr_required_quantity(item["Category"])
+            mat_obj = igr_material_map.get(item["Category"])
+            if mat_obj and req_qty > 0:
+                stock_pct = (mat_obj.quantity / req_qty) * 100
+            else:
+                stock_pct = 0
+            item["$ per SF"] = (item["Cost ($)"] / total_area if total_area > 0 else 0)
+            item["% Total Cost"] = (item["Cost ($)"] / cp.get("igr_material_total_cost", 1) * 100 if cp.get("igr_material_total_cost", 0) > 0 else 0)
+            item["Stock Level"] = f"{stock_pct:.2f}%"
+            if mat_obj:
+                item["Min Lead"] = mat_obj.min_lead if mat_obj.min_lead is not None else "N/A"
+                item["Max Lead"] = mat_obj.max_lead if mat_obj.max_lead is not None else "N/A"
+            else:
+                item["Min Lead"] = "N/A"
+                item["Max Lead"] = "N/A"
 
         cp["igr_itemized_costs"] = igr_items
         save_current_project(cp)
 
-        table_html = "<table class='summary-table'><tr><th>Category</th><th>Selected Material</th><th>Unit Cost</th><th>Calculation</th><th>Cost ($)</th><th>$ per SF</th><th>% Total Cost</th></tr>"
+        table_html = "<table class='summary-table'><tr>"
+        igr_headers = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead"]
+        for header in igr_headers:
+            table_html += f"<th>{header}</th>"
+        table_html += "</tr>"
         for item in igr_items:
-            table_html += f"<tr><td>{item['Category']}</td><td>{item['Selected Material']}</td><td>{item['Unit Cost']:.2f}</td><td>{item['Calculation']}</td><td>{item['Cost ($)']:.2f}</td><td>{item['$ per SF']:.2f}</td><td>{item['% Total Cost']:.2f}</td></tr>"
+            table_html += "<tr>"
+            table_html += f"<td>{item['Category']}</td>"
+            table_html += f"<td>{item['Selected Material']}</td>"
+            table_html += f"<td>{item['Unit Cost']:.2f}</td>"
+            table_html += f"<td>{item['Calculation']}</td>"
+            table_html += f"<td>{item['Cost ($)']:.2f}</td>"
+            table_html += f"<td>{item['$ per SF']:.2f}</td>"
+            table_html += f"<td>{item['% Total Cost']:.2f}</td>"
+            table_html += f"<td>{item['Stock Level']}</td>"
+            table_html += f"<td>{item['Min Lead']}</td>"
+            table_html += f"<td>{item['Max Lead']}</td>"
+            table_html += "</tr>"
         table_html += "</table>"
 
         cp["igr_materials_breakdown"] = table_html
@@ -1389,7 +1532,6 @@ def create_final_summary_csv():
     cp = get_current_project()
     output = io.StringIO()
     writer = csv.writer(output)
-    # Write Customer Name, then Project Name and Number, and new toggles
     writer.writerow(["Customer Name:", cp.get("customer_name", "N/A")])
     writer.writerow(["Project Name:", cp.get("project_name", "Unnamed Project")])
     writer.writerow(["Project Number:", cp.get("project_number", "")])
@@ -1397,7 +1539,6 @@ def create_final_summary_csv():
     writer.writerow(["Jamb Plate Screws:", cp.get("jamb_plate_screws", "No")])
     writer.writerow(["Date:", datetime.datetime.now().strftime("%Y-%m-%d")])
     writer.writerow([])
-
     swr_panels = cp.get("swr_total_quantity", 0)
     swr_area = cp.get("swr_total_area", 0)
     swr_perimeter = cp.get("swr_total_perimeter", 0)
@@ -1413,12 +1554,10 @@ def create_final_summary_csv():
     combined_perimeter = swr_perimeter + igr_perimeter
     combined_horizontal = swr_horizontal + igr_horizontal
     combined_vertical = swr_vertical + igr_vertical
-
     writer.writerow(["Combined Totals"])
     writer.writerow(["Panels", "Area (sq ft)", "Perimeter (ft)", "Horizontal (ft)", "Vertical (ft)"])
     writer.writerow([combined_panels, combined_area, combined_perimeter, combined_horizontal, combined_vertical])
     writer.writerow([])
-
     writer.writerow(["Project Summary"])
     writer.writerow(["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"])
     final_summary = cp.get("final_summary", [])
@@ -1430,37 +1569,40 @@ def create_final_summary_csv():
             row.get("Cost with Margin ($)", 0)
         ])
     writer.writerow([])
-
     writer.writerow(["Detailed SWR Itemized Costs"])
-    writer.writerow(
-        ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost"])
+    writer.writerow(["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead"])
     line_items = cp.get("itemized_costs", [])
     for item in line_items:
-        category = item.get("Category", "")
-        material = item.get("Selected Material", "")
-        unit_cost = item.get("Unit Cost", 0)
-        calc_text = item.get("Calculation", "")
-        cost = item.get("Cost ($)", 0)
-        cost_per_sf = cost / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0
-        percent_total = (cost / cp.get("material_total_cost", 1) * 100) if cp.get("material_total_cost", 0) > 0 else 0
-        writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_sf, percent_total])
+        writer.writerow([
+            item.get("Category", ""),
+            item.get("Selected Material", ""),
+            item.get("Unit Cost", 0),
+            item.get("Calculation", ""),
+            item.get("Cost ($)", 0),
+            item.get("$ per SF", (item["Cost ($)"] / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0)),
+            item.get("% Total Cost", (item["Cost ($)"] / cp.get("material_total_cost", 1) * 100 if cp.get("material_total_cost", 0) > 0 else 0)),
+            item.get("Stock Level", ""),
+            item.get("Min Lead", ""),
+            item.get("Max Lead", "")
+        ])
     writer.writerow([])
-
     writer.writerow(["Detailed IGR Itemized Costs"])
-    writer.writerow(
-        ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost"])
+    writer.writerow(["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead"])
     igr_items = cp.get("igr_itemized_costs", [])
     for item in igr_items:
-        category = item.get("Category", "")
-        material = item.get("Selected Material", "")
-        unit_cost = item.get("Unit Cost", 0)
-        calc_text = item.get("Calculation", "")
-        cost = item.get("Cost ($)", 0)
-        cost_per_sf = cost / cp.get("igr_total_area", 1) if cp.get("igr_total_area", 0) > 0 else 0
-        percent_total = (cost / cp.get("igr_material_total_cost", 1) * 100) if cp.get("igr_material_total_cost", 0) > 0 else 0
-        writer.writerow([category, material, unit_cost, calc_text, cost, cost_per_sf, percent_total])
+        writer.writerow([
+            item.get("Category", ""),
+            item.get("Selected Material", ""),
+            item.get("Unit Cost", 0),
+            item.get("Calculation", ""),
+            item.get("Cost ($)", 0),
+            item.get("$ per SF", (item["Cost ($)"] / cp.get("igr_total_area", 1) if cp.get("igr_total_area", 0) > 0 else 0)),
+            item.get("% Total Cost", (item["Cost ($)"] / cp.get("igr_material_total_cost", 1) * 100 if cp.get("igr_material_total_cost", 0) > 0 else 0)),
+            item.get("Stock Level", ""),
+            item.get("Min Lead", ""),
+            item.get("Max Lead", "")
+        ])
     writer.writerow([])
-
     return output.getvalue()
 
 
@@ -1473,7 +1615,6 @@ def create_final_export_excel(margins_dict=None):
     writer = pd.ExcelWriter(output, engine="xlsxwriter")
     workbook = writer.book
     ws = workbook.add_worksheet("Project Export")
-
     ws.write("A1", "Customer Name:")
     ws.write("B1", cp.get("customer_name", "N/A"))
     ws.write("A2", "Project Name:")
@@ -1482,7 +1623,6 @@ def create_final_export_excel(margins_dict=None):
     ws.write("B3", cp.get("project_number", ""))
     ws.write("A4", "Date:")
     ws.write("B4", datetime.datetime.now().strftime("%Y-%m-%d"))
-
     ws.write("D1", "Combined Totals")
     ws.write("D2", "Panels")
     ws.write("E2", cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0))
@@ -1494,7 +1634,6 @@ def create_final_export_excel(margins_dict=None):
     ws.write("E5", cp.get("swr_total_horizontal_ft", 0) + cp.get("igr_total_horizontal_ft", 0))
     ws.write("D6", "Vertical (ft)")
     ws.write("E6", cp.get("swr_total_vertical_ft", 0) + cp.get("igr_total_vertical_ft", 0))
-
     ws.write("G1", "Project Summary")
     ws.write("G2", "Category")
     ws.write("H2", "Original Cost ($)")
@@ -1507,29 +1646,22 @@ def create_final_export_excel(margins_dict=None):
         ws.write(row, 8, item.get("Margin (%)", 0))
         ws.write(row, 9, item.get("Cost with Margin ($)", 0))
         row += 1
-
     start_row = 9
-    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF",
-                      "% Total Cost"]
+    headers_detail = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead"]
     for col, header in enumerate(headers_detail):
         ws.write(start_row, col, header)
     line_items = cp.get("itemized_costs", [])
     for i, item in enumerate(line_items, start=start_row + 1):
-        category = item.get("Category", "")
-        material = item.get("Selected Material", "")
-        unit_cost = item.get("Unit Cost", 0)
-        calc_text = item.get("Calculation", "")
-        cost = item.get("Cost ($)", 0)
-        cost_per_sf = cost / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0
-        percent_total = (cost / cp.get("grand_total", 1) * 100) if cp.get("grand_total", 0) > 0 else 0
-        ws.write(i, 0, category)
-        ws.write(i, 1, material)
-        ws.write(i, 2, unit_cost)
-        ws.write(i, 3, calc_text)
-        ws.write(i, 4, cost)
-        ws.write(i, 5, cost_per_sf)
-        ws.write(i, 6, percent_total)
-
+        ws.write(i, 0, item.get("Category", ""))
+        ws.write(i, 1, item.get("Selected Material", ""))
+        ws.write(i, 2, item.get("Unit Cost", 0))
+        ws.write(i, 3, item.get("Calculation", ""))
+        ws.write(i, 4, item.get("Cost ($)", 0))
+        ws.write(i, 5, item.get("$ per SF", (item["Cost ($)"] / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0)))
+        ws.write(i, 6, item.get("% Total Cost", (item["Cost ($)"] / cp.get("grand_total", 1) * 100 if cp.get("grand_total", 0) > 0 else 0)))
+        ws.write(i, 7, item.get("Stock Level", ""))
+        ws.write(i, 8, item.get("Min Lead", ""))
+        ws.write(i, 9, item.get("Max Lead", ""))
     writer.close()
     output.seek(0)
     return output
