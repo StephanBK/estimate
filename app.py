@@ -55,7 +55,7 @@ def make_serializable(obj):
     else:
         return obj
 
-# Helper function: get or initialize current_project in session
+# Helper functions for session management
 def get_current_project():
     cp = session.get("current_project")
     if cp is None:
@@ -63,7 +63,6 @@ def get_current_project():
         session["current_project"] = cp
     return cp
 
-# Helper function: save the project to session after converting to serializable types
 def save_current_project(cp):
     session["current_project"] = make_serializable(cp)
 
@@ -75,7 +74,7 @@ common_css = """
     @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600&display=swap');
     body { background-color: #121212; color: #ffffff; font-family: 'Exo 2', sans-serif; padding: 20px; }
     .container { background-color: #1e1e1e; padding: 20px; border-radius: 10px; max-width: 900px; margin: auto; box-shadow: 0 0 15px rgba(0,128,128,0.5); }
-    input, select, button { padding: 10px; margin: 5px 0; border: none; border-radius: 5px; background-color: #333; color: #fff; width: 100%; }
+    input, select, button, textarea { padding: 10px; margin: 5px 0; border: none; border-radius: 5px; background-color: #333; color: #fff; width: 100%; }
     button { background-color: #008080; cursor: pointer; transition: background-color 0.3s ease; }
     button:hover { background-color: #00a0a0; }
     a { color: #00a0a0; text-decoration: none; font-weight: 600; }
@@ -378,24 +377,8 @@ def materials():
         selected_head_retainers = request.form.get('material_head_retainers')
         screws_option = request.form.get('screws_option')
         selected_screws = request.form.get('material_screws')
-
-        cp['material_glass'] = selected_glass
-        cp['material_aluminum'] = selected_aluminum
-        cp['retainer_option'] = retainer_option
-        cp['material_retainer'] = selected_retainer
-        cp['material_glazing'] = selected_glazing
-        cp['material_gaskets'] = selected_gaskets
-        cp['material_corner_keys'] = selected_corner_keys
-        cp['material_dual_lock'] = selected_dual_lock
-        cp['material_foam_baffle'] = selected_foam_baffle_top
-        cp['material_foam_baffle_bottom'] = selected_foam_baffle_bottom
-        cp['glass_protection_side'] = glass_protection_side
-        cp['material_glass_protection'] = selected_glass_protection
-        cp['retainer_attachment_option'] = retainer_attachment_option
-        cp['material_tape'] = selected_tape
-        cp['material_head_retainers'] = selected_head_retainers
-        cp['screws_option'] = screws_option
-        cp['material_screws'] = selected_screws
+        # Retrieve the Materials Note from the form
+        cp["swr_note"] = request.form.get("swr_note", "")
         save_current_project(cp)
 
         mat_glass = Material.query.get(selected_glass) if selected_glass else None
@@ -627,7 +610,7 @@ def materials():
             },
         ]
 
-        # Process discount/surcharge for SWR items interactively
+        # Process discount/surcharge and compute Final Cost for each SWR item
         for item in materials_list:
             discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
             discount_str = (request.form.get(discount_key) or "").strip()
@@ -644,10 +627,11 @@ def materials():
 
         total_final_cost = sum(item["Final Cost"] for item in materials_list)
 
-        # Build table HTML with interactive discount input
+        # Build interactive table HTML for SWR materials
         table_html = "<form method='POST'>"
         headers = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead", "Discount/Surcharge", "Final Cost"]
-        table_html += "<table class='summary-table'><tr>"
+        table_html += "<table class='summary-table'>"
+        table_html += "<tr>"
         for header in headers:
             table_html += f"<th>{header}</th>"
         table_html += "</tr>"
@@ -661,13 +645,15 @@ def materials():
             table_html += f"<td class='cost'>{item['Cost ($)']:.2f}</td>"
             table_html += f"<td>{(item['Final Cost'] / total_area if total_area > 0 else 0):.2f}</td>"
             table_html += f"<td>{(item['Final Cost'] / total_final_cost * 100 if total_final_cost > 0 else 0):.2f}</td>"
-            table_html += f"<td>N/A</td>"
-            table_html += f"<td>N/A</td>"
-            table_html += f"<td>N/A</td>"
+            table_html += f"<td>N/A</td>"  # Stock Level
+            table_html += f"<td>N/A</td>"  # Min Lead
+            table_html += f"<td>N/A</td>"  # Max Lead
             table_html += f"<td><input type='number' step='1' name='{discount_key}' value='{item['Discount/Surcharge']}' oninput='updateFinalCost(this)' /></td>"
             table_html += f"<td class='final-cost'>{item['Final Cost']:.2f}</td>"
             table_html += "</tr>"
         table_html += "</table>"
+        # Place the note field outside the table:
+        table_html += "<div style='margin-top:10px;'><label for='swr_note'>Materials Note:</label><textarea id='swr_note' name='swr_note' rows='3' style='width:100%;'>" + cp.get("swr_note", "") + "</textarea></div>"
         table_html += """
         <script>
         function updateFinalCost(input) {
@@ -960,6 +946,8 @@ def igr_materials():
         cp['igr_material_glass_protection'] = selected_igr_glass_protection
         cp['igr_material_perimeter_tape'] = selected_igr_perimeter_tape
         cp['igr_material_structural_tape'] = selected_igr_structural_tape
+        # Retrieve IGR Materials Note from the form
+        cp["igr_note"] = request.form.get("igr_note", "")
         save_current_project(cp)
 
         mat_igr_glass = Material.query.get(selected_igr_glass) if selected_igr_glass else None
@@ -1113,6 +1101,7 @@ def igr_materials():
             table_html += f"<td class='final-cost'>{item['Final Cost']:.2f}</td>"
             table_html += "</tr>"
         table_html += "</table>"
+        table_html += "<div style='margin-top:10px;'><label for='igr_note'>IGR Materials Note:</label><textarea id='igr_note' name='igr_note' rows='3' style='width:100%;'>" + cp.get("igr_note", "") + "</textarea></div>"
         table_html += """
         <script>
         function updateFinalCost(input) {
@@ -1233,6 +1222,10 @@ def igr_materials():
                   <button type="button" class="btn" onclick="window.location.href='/materials'">Back: SWR Materials</button>
                   <button type="submit" class="btn">Calculate IGR Material Costs</button>
                </div>
+               <div style="margin-top:10px;">
+                  <label for="igr_note">IGR Materials Note:</label>
+                  <textarea id="igr_note" name="igr_note" rows="3" style="width:100%;">{cp.get("igr_note", "")}</textarea>
+               </div>
             </form>
          </div>
       </body>
@@ -1295,6 +1288,8 @@ def other_costs():
         cp["sales_cost"] = sales_cost
         cp["additional_total"] = additional_total
         cp["grand_total"] = grand_total
+        # Retrieve Travel Note from the form
+        cp["travel_note"] = request.form.get("travel_note", "")
         save_current_project(cp)
 
         result_html = f"""
@@ -1317,6 +1312,10 @@ def other_costs():
                  <tr><td><strong>Additional Total</strong></td><td><strong>{additional_total:.2f}</strong></td></tr>
                  <tr><th>Grand Total</th><th>{grand_total:.2f}</th></tr>
                </table>
+               <div style="margin-top:10px;">
+                  <label for="travel_note">Travel Note:</label>
+                  <textarea id="travel_note" name="travel_note" rows="3" style="width:100%;">{cp.get("travel_note", "")}</textarea>
+               </div>
                <div class="btn-group">
                   <div class="btn-left">
                      <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back to IGR Materials</button>
@@ -1358,6 +1357,10 @@ def other_costs():
                 <input type="number" step="0.01" id="hours_per_panel" name="hours_per_panel" value="{cp.get('hours_per_panel', '0')}" required>
               </div>
               <!-- Additional cost fields remain unchanged -->
+              <div style="margin-top:10px;">
+                  <label for="travel_note">Travel Note:</label>
+                  <textarea id="travel_note" name="travel_note" rows="3" style="width:100%;">{cp.get("travel_note", "")}</textarea>
+              </div>
               <div class="btn-group">
                  <div class="btn-left">
                      <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back to IGR Materials</button>
@@ -1454,12 +1457,10 @@ def margins():
                    <th>{final_total:.2f}</th>
                  </tr>
                </table>
-               <div style="text-align:center;">
-                 <button type="submit" class="btn btn-download" onclick="document.getElementById('downloadForm').submit();">Download Final Summary CSV</button>
+               <div style="margin-top:10px;">
+                 <label for="travel_note">Travel Note:</label>
+                 <textarea id="travel_note" name="travel_note" rows="3" style="width:100%;">{cp.get("travel_note", "")}</textarea>
                </div>
-               <form id="downloadForm" method="POST" action="/download_final_summary" style="display:none;">
-                 <input type="hidden" name="csv_data" value='{csv_output}'>
-               </form>
                <div class="btn-group">
                  <div class="btn-left">
                     <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Other Costs</button>
@@ -1563,7 +1564,7 @@ def create_final_summary_csv():
     cp = get_current_project()
     output = io.StringIO()
     writer = csv.writer(output)
-    # Write header information (without project number; with Estimated by)
+    # Header information
     writer.writerow(["Customer Name:", cp.get("customer_name", "N/A")])
     writer.writerow(["Project Name:", cp.get("project_name", "Unnamed Project")])
     writer.writerow(["Estimated by:", cp.get("estimated_by", "N/A")])
@@ -1593,23 +1594,25 @@ def create_final_summary_csv():
     writer.writerow([])
     writer.writerow(["Detailed SWR Itemized Costs"])
     writer.writerow(["Category", "Selected Material", "Final Cost"])
-    line_items = cp.get("itemized_costs", [])
-    for item in line_items:
+    for item in cp.get("itemized_costs", []):
         writer.writerow([
             item.get("Category", ""),
             item.get("Selected Material", ""),
             item.get("Final Cost", 0)
         ])
+    writer.writerow(["Materials Note:", cp.get("swr_note", "")])
     writer.writerow([])
     writer.writerow(["Detailed IGR Itemized Costs"])
     writer.writerow(["Category", "Selected Material", "Final Cost"])
-    igr_items = cp.get("igr_itemized_costs", [])
-    for item in igr_items:
+    for item in cp.get("igr_itemized_costs", []):
         writer.writerow([
             item.get("Category", ""),
             item.get("Selected Material", ""),
             item.get("Final Cost", 0)
         ])
+    writer.writerow(["IGR Materials Note:", cp.get("igr_note", "")])
+    writer.writerow([])
+    writer.writerow(["Other Costs Note (Travel):", cp.get("travel_note", "")])
     writer.writerow([])
     return output.getvalue()
 
@@ -1651,19 +1654,23 @@ def create_final_export_excel(margins_dict=None):
         ws.write(row, 1, item.get("Selected Material", ""))
         ws.write(row, 2, item.get("Final Cost", 0))
         row += 1
-
-    start_row = row + 2
-    ws.write(start_row, 0, "Detailed IGR Itemized Costs")
-    headers_detail = ["Category", "Selected Material", "Final Cost"]
+    ws.write(row, 0, "Materials Note:")
+    ws.write(row, 1, cp.get("swr_note", ""))
+    row += 2
+    ws.write(row, 0, "Detailed IGR Itemized Costs")
     for col, header in enumerate(headers_detail):
-        ws.write(start_row+1, col, header)
-    row = start_row + 2
+        ws.write(row+1, col, header)
+    row = row + 2
     for item in cp.get("igr_itemized_costs", []):
         ws.write(row, 0, item.get("Category", ""))
         ws.write(row, 1, item.get("Selected Material", ""))
         ws.write(row, 2, item.get("Final Cost", 0))
         row += 1
-
+    ws.write(row, 0, "IGR Materials Note:")
+    ws.write(row, 1, cp.get("igr_note", ""))
+    row += 2
+    ws.write(row, 0, "Other Costs Note (Travel):")
+    ws.write(row, 1, cp.get("travel_note", ""))
     writer.close()
     output.seek(0)
     return output
