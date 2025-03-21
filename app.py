@@ -231,7 +231,7 @@ def summary():
     cp['igr_total_horizontal_ft'] = igr_horizontal
     cp['igr_total_quantity'] = igr_quantity
     save_current_project(cp)
-    # Determine next button destination based on IGR area:
+    # Next button: if IGR area > 0, then next goes to IGR materials; otherwise, directly to Additional Costs.
     if cp.get('igr_total_area', 0) > 0:
         next_button = '<button type="button" class="btn" onclick="window.location.href=\'/igr_materials\'">Next: IGR Materials</button>'
     else:
@@ -449,6 +449,7 @@ def materials_page():
             "Tape (Cat 10)": mat_tape,
             "Screws (Cat 18)": mat_screws
         }
+
         def get_required_quantity(category):
             if category == "Glass (Cat 15)":
                 return total_area
@@ -592,7 +593,6 @@ def materials_page():
                 "Cost ($)": cost_screws
             },
         ]
-        # Process discount/surcharge for each item and compute Final Cost
         for item in materials_list:
             discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
             try:
@@ -603,7 +603,7 @@ def materials_page():
             item["Discount/Surcharge"] = discount_value
             item["Final Cost"] = item["Cost ($)"] + discount_value
         total_final_cost = sum(item["Final Cost"] for item in materials_list)
-        # Determine next button based on IGR area: if IGR area > 0, go to IGR materials; else, to Additional Costs.
+        # Next button for IGR: in this page, since we are in SWR materials, next goes to IGR if IGR area > 0, else goes to Additional Costs.
         if cp.get('igr_total_area', 0) > 0:
             next_button = '<button type="button" class="btn" onclick="window.location.href=\'/igr_materials\'">Next: IGR Materials</button>'
         else:
@@ -1014,10 +1014,7 @@ def igr_materials():
             item["Discount/Surcharge"] = discount_value
             item["Final Cost"] = item["Cost ($)"] + discount_value
         total_final_cost = sum(item["Final Cost"] for item in igr_items)
-        if cp.get('igr_total_area', 0) > 0:
-            next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
-        else:
-            next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
+        next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
         result_html = f"""
          <html>
            <head>
@@ -1167,19 +1164,19 @@ def other_costs():
     total_area_all = swr_area + igr_area
     total_panels = cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0)
     if request.method == 'POST':
-        # Fabrication
+        # --- Fabrication Section ---
         fabrication_rate = float(request.form.get('fabrication_rate', 5))
         cp["fabrication_rate"] = fabrication_rate
         fabrication_cost = fabrication_rate * total_area_all
 
-        # Packaging & Shipping (include trucks and crates/racks)
+        # --- Packaging & Shipping Section ---
         num_trucks = float(request.form.get('num_trucks', 0))
         truck_cost = float(request.form.get('truck_cost', 0))
         num_crates = float(request.form.get('num_crates', 0))
         crate_cost = float(request.form.get('crate_cost', 0))
         packaging_cost = (num_trucks * truck_cost) + (num_crates * crate_cost)
 
-        # Installation (with preselectable options and additional tasks)
+        # --- Installation Section ---
         installation_option = request.form.get('installation_option')
         if installation_option == "inovues":
             labor_rate = 76.21
@@ -1206,7 +1203,15 @@ def other_costs():
             additional_install_cost += float(request.form.get('pm_cost', 0))
         installation_cost = base_installation_cost + additional_install_cost
 
-        # Travel (units handled per day and additional items)
+        # --- Equipment Section ---
+        cost_scissor = float(request.form.get('cost_scissor', 0))
+        cost_lull = float(request.form.get('cost_lull', 0))
+        cost_baker = float(request.form.get('cost_baker', 0))
+        cost_crane = float(request.form.get('cost_crane', 0))
+        cost_blankets = float(request.form.get('cost_blankets', 0))
+        equipment_cost = cost_scissor + cost_lull + cost_baker + cost_crane + cost_blankets
+
+        # --- Travel Section ---
         units_per_day = float(request.form.get('units_per_day', 1))
         cp["units_per_day"] = units_per_day
         total_panels = cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0)
@@ -1227,25 +1232,20 @@ def other_costs():
             observation_cost = 0
         travel_cost += observation_cost
 
-        # Equipment
-        cost_scissor = float(request.form.get('cost_scissor', 0))
-        cost_lull = float(request.form.get('cost_lull', 0))
-        cost_baker = float(request.form.get('cost_baker', 0))
-        cost_crane = float(request.form.get('cost_crane', 0))
-        cost_blankets = float(request.form.get('cost_blankets', 0))
-        equipment_cost = cost_scissor + cost_lull + cost_baker + cost_crane + cost_blankets
-
-        # Sales (we assume sales section is now built with selectable items; here we sum the chosen ones)
-        sales_items = ["Building Audit/Survey", "Detailed audit to inventory existing windows",
-                       "System Design Customization", "Thermal Stress Analysis", "Structural Analysis",
-                       "Thermal Performance Simulation/Analysis", "Visual & Performance Mockup",
-                       "CEO Time (management & development)", "Additional Design Development for nontypical conditions",
-                       "CFD analysis", "Window Performance M&V", "Building Energy Model",
-                       "Cost-Benefit Analysis", "Utility Incentive Application"]
+        # --- Sales Section ---
+        sales_items = [
+            "Building Audit/Survey", "Detailed audit to inventory existing windows",
+            "System Design Customization", "Thermal Stress Analysis", "Structural Analysis",
+            "Thermal Performance Simulation/Analysis", "Visual & Performance Mockup",
+            "CEO Time (management & development)", "Additional Design Development for nontypical conditions",
+            "CFD analysis", "Window Performance M&V", "Building Energy Model",
+            "Cost-Benefit Analysis", "Utility Incentive Application"
+        ]
         sales_cost = 0
         for item in sales_items:
-            if request.form.get(item.replace(" ", "_")):
-                sales_cost += float(request.form.get(item.replace(" ", "_") + "_cost", 0))
+            safe_item = item.replace(" ", "_")
+            if request.form.get(safe_item):
+                sales_cost += float(request.form.get(safe_item + "_cost", 0))
         # Save note fields for each section
         cp["fabrication_note"] = request.form.get("fabrication_note", "")
         cp["packaging_note"] = request.form.get("packaging_note", "")
@@ -1255,16 +1255,16 @@ def other_costs():
         cp["sales_note"] = request.form.get("sales_note", "")
         save_current_project(cp)
 
-        additional_total = (fabrication_cost + packaging_cost + installation_cost +
-                            equipment_cost + travel_cost + sales_cost)
+        # Merge Installation cost with Equipment and Travel
+        installation_total = installation_cost + equipment_cost + travel_cost
+
+        additional_total = fabrication_cost + packaging_cost + installation_total + sales_cost
         material_cost = cp.get("material_total_cost", 0) + cp.get("igr_material_total_cost", 0)
         grand_total = material_cost + additional_total
 
         cp["fabrication_cost"] = fabrication_cost
         cp["packaging_cost"] = packaging_cost
-        cp["installation_cost"] = installation_cost
-        cp["equipment_cost"] = equipment_cost
-        cp["travel_cost"] = travel_cost
+        cp["installation_cost"] = installation_total
         cp["sales_cost"] = sales_cost
         cp["additional_total"] = additional_total
         cp["grand_total"] = grand_total
@@ -1283,9 +1283,7 @@ def other_costs():
                  <tr><th>Cost Category</th><th>Amount ($)</th></tr>
                  <tr><td>Fabrication</td><td>{fabrication_cost:.2f}</td></tr>
                  <tr><td>Packaging & Shipping</td><td>{packaging_cost:.2f}</td></tr>
-                 <tr><td>Installation</td><td>{installation_cost:.2f}</td></tr>
-                 <tr><td>Equipment</td><td>{equipment_cost:.2f}</td></tr>
-                 <tr><td>Travel</td><td>{travel_cost:.2f}</td></tr>
+                 <tr><td>Installation</td><td>{installation_total:.2f}</td></tr>
                  <tr><td>Sales</td><td>{sales_cost:.2f}</td></tr>
                  <tr><td><strong>Additional Total</strong></td><td><strong>{additional_total:.2f}</strong></td></tr>
                  <tr><th>Grand Total</th><th>{grand_total:.2f}</th></tr>
@@ -1301,10 +1299,6 @@ def other_costs():
                <div style="margin-top:10px;">
                   <label for="installation_note">Installation Note:</label>
                   <textarea id="installation_note" name="installation_note" rows="2" style="width:100%;">{cp.get("installation_note", "")}</textarea>
-               </div>
-               <div style="margin-top:10px;">
-                  <label for="equipment_note">Equipment Note:</label>
-                  <textarea id="equipment_note" name="equipment_note" rows="2" style="width:100%;">{cp.get("equipment_note", "")}</textarea>
                </div>
                <div style="margin-top:10px;">
                   <label for="travel_note">Travel Note:</label>
@@ -1462,7 +1456,7 @@ def other_costs():
               <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
                 <legend>Sales</legend>
     """
-    # Sales section: list of selectable items
+    # Sales section: selectable items with cost fields
     sales_items = [
         "Building Audit/Survey", "Detailed audit to inventory existing windows",
         "System Design Customization", "Thermal Stress Analysis", "Structural Analysis",
@@ -1510,13 +1504,15 @@ def other_costs():
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
     cp = get_current_project()
-    combined_material = cp.get("material_total_cost", 0) + cp.get("igr_material_total_cost", 0)
+    # Update base_costs: "Product" = material cost + fabrication cost; "Packaging & Shipping" remains;
+    # "Installation" = merged installation cost (installation + equipment + travel); "Sales" remains.
+    material_cost = cp.get("material_total_cost", 0) + cp.get("igr_material_total_cost", 0)
+    fabrication_cost = cp.get("fabrication_cost", 0)
+    installation_merged = cp.get("installation_cost", 0)  # In other_costs, installation_cost was set as merged.
     base_costs = {
-        "Panel Total": combined_material,
+        "Product": material_cost + fabrication_cost,
         "Packaging & Shipping": cp.get("packaging_cost", 0),
-        "Installation": cp.get("installation_cost", 0),
-        "Equipment": cp.get("equipment_cost", 0),
-        "Travel": cp.get("travel_cost", 0),
+        "Installation": installation_merged,
         "Sales": cp.get("sales_cost", 0)
     }
     total_area = cp.get("swr_total_area", 0)
@@ -1611,11 +1607,11 @@ def margins():
                 updateGrandPSF();
             }}
             function updateGrandPSF() {{
-                var categories = ["Panel Total", "Packaging & Shipping", "Installation", "Equipment", "Travel", "Sales"];
+                var categories = ["Product", "Packaging & Shipping", "Installation", "Sales"];
                 var sum = 0;
                 for (var i = 0; i < categories.length; i++) {{
                     var cat = categories[i];
-                    var var_id = cat.replace(" ", "_");
+                    var var_id = cat.replace(/[^a-zA-Z0-9]/g, "_");
                     var slider = document.getElementById(var_id + "_margin");
                     var margin = parseFloat(slider.value);
                     var cost = baseCosts[cat];
@@ -1638,10 +1634,10 @@ def margins():
             <form method="POST">
     """
     for category in base_costs:
-        var_id = category.replace(" ", "_")
+        var_id = category.replace(" ", "_").replace("&", "").replace("__", "_")
         form_html += f"""
                 <div class="margin-row">
-                   <label for="{var_id}_margin">{category} Margin (%):</label>
+                   <label for="{var_id}_margin">{ "Product margin" if category=="Product" else ( "Packaging & Shipping margin" if category=="Packaging & Shipping" else category + " margin") } (%):</label>
                    <input type="range" id="{var_id}_margin" name="{category}_margin" min="0" max="100" step="1" value="{cp.get(category + '_margin', '0')}" oninput="updateOutput('{var_id}_margin', '{var_id}_output')">
                    <output id="{var_id}_output">{cp.get(category + '_margin', '0')}</output>
                 </div>
@@ -1732,7 +1728,6 @@ def create_final_summary_csv():
     writer.writerow(["Fabrication Note:", cp.get("fabrication_note", "")])
     writer.writerow(["Packaging & Shipping Note:", cp.get("packaging_note", "")])
     writer.writerow(["Installation Note:", cp.get("installation_note", "")])
-    writer.writerow(["Equipment Note:", cp.get("equipment_note", "")])
     writer.writerow(["Travel Note:", cp.get("travel_note", "")])
     writer.writerow(["Sales Note:", cp.get("sales_note", "")])
     writer.writerow([])
@@ -1799,9 +1794,6 @@ def create_final_export_excel(margins_dict=None):
     row += 1
     ws.write(row, 0, "Installation Note:")
     ws.write(row, 1, cp.get("installation_note", ""))
-    row += 1
-    ws.write(row, 0, "Equipment Note:")
-    ws.write(row, 1, cp.get("equipment_note", ""))
     row += 1
     ws.write(row, 0, "Travel Note:")
     ws.write(row, 1, cp.get("travel_note", ""))
