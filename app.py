@@ -18,13 +18,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Initialize the database
 db = SQLAlchemy(app)
 
+
 # Define the Material model (using 'nickname' for display)
 class Material(db.Model):
     __tablename__ = 'materials'
     id = db.Column(db.Integer, primary_key=True)
     category = db.Column(db.Integer, nullable=False)
     nickname = db.Column(db.String(100), nullable=False)
-    # Removed the 'status' column since it no longer exists.
     description = db.Column(db.Text)
     cost = db.Column(db.Float, nullable=False)
     cost_unit = db.Column(db.String(50))
@@ -44,6 +44,7 @@ class Material(db.Model):
     min_lead = db.Column(db.Integer)
     max_lead = db.Column(db.Integer)
 
+
 # Helper function: recursively convert NumPy types to native Python types
 def make_serializable(obj):
     if isinstance(obj, dict):
@@ -55,6 +56,7 @@ def make_serializable(obj):
     else:
         return obj
 
+
 # Session management helpers
 def get_current_project():
     cp = session.get("current_project")
@@ -63,8 +65,22 @@ def get_current_project():
         session["current_project"] = cp
     return cp
 
+
 def save_current_project(cp):
     session["current_project"] = make_serializable(cp)
+
+
+# Helper to generate select options (with safe yield_cost display)
+def generate_options(materials_list, selected_value=None):
+    options = ""
+    for m in materials_list:
+        yield_cost = m.yield_cost if m.yield_cost is not None else 0.0
+        if str(m.id) == str(selected_value):
+            options += f'<option value="{m.id}" selected>{m.nickname} - ${yield_cost:.2f}</option>'
+        else:
+            options += f'<option value="{m.id}">{m.nickname} - ${yield_cost:.2f}</option>'
+    return options
+
 
 # Path to the CSV template
 TEMPLATE_PATH = 'estimation_template_template.csv'
@@ -77,8 +93,17 @@ common_css = """
     input, select, button, textarea { padding: 10px; margin: 5px 0; border: none; border-radius: 5px; background-color: #333; color: #fff; width: 100%; }
     button { background-color: #008080; cursor: pointer; transition: background-color 0.3s ease; }
     button:hover { background-color: #00a0a0; }
-    a { color: #00a0a0; text-decoration: none; font-weight: 600; }
-    a:hover { text-decoration: underline; }
+    a.btn {
+        display: inline-block;
+        background-color: #008080;
+        color: #fff;
+        text-align: center;
+        padding: 10px 20px;
+        border-radius: 5px;
+        text-decoration: none;
+        min-width: 140px;
+    }
+    a.btn:hover { background-color: #00a0a0; }
     h2, p { text-align: center; }
     .summary-table, .data-table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
     .summary-table th, .summary-table td, .data-table th, .data-table td { border: 1px solid #444; padding: 8px; text-align: center; word-wrap: break-word; }
@@ -95,9 +120,10 @@ common_css = """
     #custom_installation { display: none; }
 """
 
-# =========================
+
+# ==================================================
 # INDEX PAGE
-# =========================
+# ==================================================
 @app.route('/', methods=['GET', 'POST'])
 def index():
     cp = get_current_project()
@@ -182,13 +208,18 @@ def index():
     </html>
     """
 
+
+# ==================================================
+# DOWNLOAD TEMPLATE
+# ==================================================
 @app.route('/download-template')
 def download_template():
     return send_file(TEMPLATE_PATH, as_attachment=True)
 
-# =========================
+
+# ==================================================
 # SUMMARY PAGE (After CSV is Read)
-# =========================
+# ==================================================
 @app.route('/summary')
 def summary():
     cp = get_current_project()
@@ -203,6 +234,7 @@ def summary():
     else:
         df_swr = df
         df_igr = pd.DataFrame()
+
     def compute_totals(df_subset):
         df_subset['Area (sq in)'] = df_subset['VGA Width in'] * df_subset['VGA Height in']
         df_subset['Total Area (sq ft)'] = (df_subset['Area (sq in)'] * df_subset['Qty']) / 144
@@ -216,6 +248,7 @@ def summary():
         total_horizontal = df_subset['Total Horizontal (ft)'].sum()
         total_quantity = df_subset['Qty'].sum()
         return total_area, total_perimeter, total_vertical, total_horizontal, total_quantity
+
     swr_area, swr_perimeter, swr_vertical, swr_horizontal, swr_quantity = compute_totals(df_swr)
     igr_area, igr_perimeter, igr_vertical, igr_horizontal, igr_quantity = (0, 0, 0, 0, 0)
     if not df_igr.empty:
@@ -231,11 +264,7 @@ def summary():
     cp['igr_total_horizontal_ft'] = igr_horizontal
     cp['igr_total_quantity'] = igr_quantity
     save_current_project(cp)
-    # Next button: if IGR area > 0, then next goes to IGR materials; otherwise, directly to Additional Costs.
-    if cp.get('igr_total_area', 0) > 0:
-        next_button = '<button type="button" class="btn" onclick="window.location.href=\'/igr_materials\'">Next: IGR Materials</button>'
-    else:
-        next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
+    next_button = '<button type="button" class="btn" onclick="window.location.href=\'/materials\'">Next: SWR Materials</button>'
     btn_html = '<button type="button" class="btn" onclick="window.location.href=\'/\'">Start New Project</button>' + next_button
     summary_html = f"""
     <html>
@@ -276,23 +305,13 @@ def summary():
     """
     return summary_html
 
-# --- Helper to generate select options with previous selection ---
-def generate_options(materials_list, selected_value=None):
-    options = ""
-    for m in materials_list:
-        if str(m.id) == str(selected_value):
-            options += f'<option value="{m.id}" selected>{m.nickname} - ${m.yield_cost:.2f}</option>'
-        else:
-            options += f'<option value="{m.id}">{m.nickname} - ${m.yield_cost:.2f}</option>'
-    return options
 
-# =========================
-# SWR MATERIALS PAGE (Material Selection)
-# =========================
+# ==================================================
+# SWR MATERIALS PAGE (Material Selection & Cost Summary)
+# ==================================================
 @app.route('/materials', methods=['GET', 'POST'])
 def materials_page():
     cp = get_current_project()
-    # Only show SWR materials if SWR area > 0
     if cp.get('swr_total_area', 0) <= 0:
         return redirect(url_for('other_costs'))
     try:
@@ -435,67 +454,6 @@ def materials_page():
                                cost_glass_protection + cost_tape + cost_head_retainers + cost_screws)
         cp['material_total_cost'] = total_material_cost
 
-        material_map = {
-            "Glass (Cat 15)": mat_glass,
-            "Extrusions (Cat 1)": mat_aluminum,
-            "Retainer (Cat 17)": mat_retainer,
-            "Glazing Spline (Cat 2)": mat_glazing,
-            "Gaskets (Cat 3)": mat_gaskets,
-            "Corner Keys (Cat 4)": mat_corner_keys,
-            "Dual Lock (Cat 5)": mat_dual_lock,
-            "Foam Baffle Top/Head (Cat 6)": mat_foam_baffle_top,
-            "Foam Baffle Bottom/Sill (Cat 6)": mat_foam_baffle_bottom,
-            "Glass Protection (Cat 7)": mat_glass_protection,
-            "Tape (Cat 10)": mat_tape,
-            "Screws (Cat 18)": mat_screws
-        }
-
-        def get_required_quantity(category):
-            if category == "Glass (Cat 15)":
-                return total_area
-            elif category == "Extrusions (Cat 1)":
-                return total_perimeter
-            elif category == "Retainer (Cat 17)":
-                if cp.get("retainer_option") == "head_retainer":
-                    return 0.5 * total_horizontal
-                elif cp.get("retainer_option") == "head_and_sill":
-                    return total_horizontal
-                else:
-                    return 0
-            elif category == "Glazing Spline (Cat 2)":
-                return total_perimeter
-            elif category == "Gaskets (Cat 3)":
-                return total_vertical
-            elif category == "Corner Keys (Cat 4)":
-                return total_quantity * 4
-            elif category == "Dual Lock (Cat 5)":
-                return total_quantity
-            elif category == "Foam Baffle Top/Head (Cat 6)":
-                return 0.5 * total_horizontal
-            elif category == "Foam Baffle Bottom/Sill (Cat 6)":
-                return 0.5 * total_horizontal
-            elif category == "Glass Protection (Cat 7)":
-                if cp.get("glass_protection_side") == "double":
-                    return total_area * 2
-                else:
-                    return total_area
-            elif category == "Tape (Cat 10)":
-                if cp.get("retainer_attachment_option") == 'head_retainer':
-                    return total_horizontal / 2
-                elif cp.get("retainer_attachment_option") == 'head_sill':
-                    return total_horizontal
-                else:
-                    return 0
-            elif category == "Screws (Cat 18)":
-                if cp.get("screws_option") == "head_retainer":
-                    return 0.5 * total_horizontal * 4
-                elif cp.get("screws_option") == "head_and_sill":
-                    return total_horizontal * 4
-                else:
-                    return 0
-            else:
-                return 0
-
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -515,10 +473,12 @@ def materials_page():
                 "Category": "Retainer (Cat 17)",
                 "Selected Material": (mat_retainer.nickname if mat_retainer else "N/A") if cp.get("retainer_option") != "no_retainer" else "N/A",
                 "Unit Cost": (mat_retainer.yield_cost if mat_retainer else 0) if cp.get("retainer_option") != "no_retainer" else 0,
-                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_aluminum']}"
-                                if cp.get("retainer_option") == "head_retainer"
-                                else (f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Yield Cost × {cp['yield_aluminum']}"
-                                      if cp.get("retainer_option") == "head_and_sill" else "No Retainer")),
+                "Calculation": (
+                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_aluminum']}"
+                    if cp.get("retainer_option") == "head_retainer"
+                    else (
+                        f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Yield Cost × {cp['yield_aluminum']}"
+                        if cp.get("retainer_option") == "head_and_sill" else "No Retainer")),
                 "Cost ($)": cost_retainer
             },
             {
@@ -603,11 +563,7 @@ def materials_page():
             item["Discount/Surcharge"] = discount_value
             item["Final Cost"] = item["Cost ($)"] + discount_value
         total_final_cost = sum(item["Final Cost"] for item in materials_list)
-        # Next button for IGR: in this page, since we are in SWR materials, next goes to IGR if IGR area > 0, else goes to Additional Costs.
-        if cp.get('igr_total_area', 0) > 0:
-            next_button = '<button type="button" class="btn" onclick="window.location.href=\'/igr_materials\'">Next: IGR Materials</button>'
-        else:
-            next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
+        next_button = '<a href="/other_costs" class="btn">Next: Additional Costs</a>'
         result_html = f"""
          <html>
            <head>
@@ -619,49 +575,52 @@ def materials_page():
                <h2>SWR Material Cost Summary</h2>
                <form method='POST'>
                <table class='summary-table'>
-               <tr>""" + "".join(f"<th>{h}</th>" for h in ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead", "Discount/Surcharge", "Final Cost"]) + "</tr>"
+               <tr>{"".join(f"<th>{h}</th>" for h in ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead", "Discount/Surcharge", "Final Cost"])}</tr>
+        """
         for item in materials_list:
             discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
-            result_html += "<tr>"
-            result_html += f"<td>{item['Category']}</td>"
-            result_html += f"<td>{item['Selected Material']}</td>"
-            result_html += f"<td>{item['Unit Cost']:.2f}</td>"
-            result_html += f"<td>{item['Calculation']}</td>"
-            result_html += f"<td class='cost'>{item['Cost ($)']:.2f}</td>"
-            result_html += f"<td>{(item['Final Cost']/total_area if total_area>0 else 0):.2f}</td>"
-            result_html += f"<td>{(item['Final Cost']/total_final_cost*100 if total_final_cost>0 else 0):.2f}</td>"
-            result_html += "<td>N/A</td>"  # Stock Level placeholder
-            result_html += "<td>N/A</td>"  # Min Lead placeholder
-            result_html += "<td>N/A</td>"  # Max Lead placeholder
-            result_html += f"<td><input type='number' step='1' name='{discount_key}' value='{item['Discount/Surcharge']}' oninput='updateFinalCost(this)' /></td>"
-            result_html += f"<td class='final-cost'>{item['Final Cost']:.2f}</td>"
-            result_html += "</tr>"
-        result_html += "</table>"
-        result_html += "<div style='margin-top:10px;'><label for='swr_note'>Materials Note:</label><textarea id='swr_note' name='swr_note' rows='3' style='width:100%;'>" + cp.get("swr_note", "") + "</textarea></div>"
-        result_html += """
-        <script>
-        function updateFinalCost(input) {
-            var row = input.closest("tr");
-            var costCell = row.querySelector(".cost");
-            var finalCostCell = row.querySelector(".final-cost");
-            var discountValue = parseFloat(input.value) || 0;
-            var costValue = parseFloat(costCell.innerText) || 0;
-            var finalCost = costValue + discountValue;
-            finalCostCell.innerText = finalCost.toFixed(2);
-        }
-        </script>
-        </form>
-        <div class="btn-group">
-           <button type="button" class="btn" onclick="window.location.href='/materials'">Back: Edit Materials</button>
-           {next_button}
-        </div>
+            result_html += f"""
+               <tr>
+                 <td>{item['Category']}</td>
+                 <td>{item['Selected Material']}</td>
+                 <td>{item['Unit Cost']:.2f}</td>
+                 <td>{item['Calculation']}</td>
+                 <td class='cost'>{item['Cost ($)']:.2f}</td>
+                 <td>{(item['Final Cost'] / total_area if total_area > 0 else 0):.2f}</td>
+                 <td>{(item['Final Cost'] / total_final_cost * 100 if total_final_cost > 0 else 0):.2f}</td>
+                 <td>N/A</td>
+                 <td>N/A</td>
+                 <td>N/A</td>
+                 <td><input type='number' step='1' name='{discount_key}' value='{item['Discount/Surcharge']}' oninput='updateFinalCost(this)' /></td>
+                 <td class='final-cost'>{item['Final Cost']:.2f}</td>
+               </tr>
+            """
+        result_html += f"""
+               </table>
+               <div style='margin-top:10px;'><label for='swr_note'>Materials Note:</label><textarea id='swr_note' name='swr_note' rows='3' style='width:100%;'>{cp.get("swr_note", "")}</textarea></div>
+               <script>
+               function updateFinalCost(input) {{
+                   var row = input.closest("tr");
+                   var costCell = row.querySelector(".cost");
+                   var finalCostCell = row.querySelector(".final-cost");
+                   var discountValue = parseFloat(input.value) || 0;
+                   var costValue = parseFloat(costCell.innerText) || 0;
+                   var finalCost = costValue + discountValue;
+                   finalCostCell.innerText = finalCost.toFixed(2);
+               }}
+               </script>
+               </form>
+               <div class="btn-group">
+                  <button type="button" class="btn" onclick="window.location.href='/materials'">Back: Edit Materials</button>
+                  {next_button}
+               </div>
              </div>
            </body>
          </html>
         """
         return result_html
     else:
-        form_html = f"""
+        return f"""
     <html>
       <head>
          <title>SWR Materials</title>
@@ -703,20 +662,6 @@ def materials_page():
                   <label for="material_retainer">Select Retainer Material:</label>
                   <select name="material_retainer" id="material_retainer" required>
                      {generate_options(materials_head_retainers, cp.get("material_retainer"))}
-                  </select>
-               </div>
-               <div>
-                  <label for="screws_option">Retainer Screws Option:</label>
-                  <select name="screws_option" id="screws_option" required>
-                     <option value="none" {"selected" if cp.get('screws_option', '') == "none" else ""}>None</option>
-                     <option value="head_retainer" {"selected" if cp.get('screws_option', '') == "head_retainer" else ""}>Head Retainer</option>
-                     <option value="head_and_sill" {"selected" if cp.get('screws_option', '') == "head_and_sill" else ""}>Head + Sill</option>
-                  </select>
-               </div>
-               <div>
-                  <label for="material_screws">Select Retainer Screws:</label>
-                  <select name="material_screws" id="material_screws" required>
-                     {generate_options(materials_screws, cp.get("material_screws"))}
                   </select>
                </div>
                <div>
@@ -850,9 +795,10 @@ def materials_page():
     """
     return form_html
 
-# =========================
+
+# ==================================================
 # IGR MATERIALS PAGE (Material Selection)
-# =========================
+# ==================================================
 @app.route('/igr_materials', methods=['GET', 'POST'])
 def igr_materials():
     cp = get_current_project()
@@ -932,6 +878,7 @@ def igr_materials():
             "IGR Perimeter Butyl Tape (Cat 10)": mat_igr_perimeter_tape,
             "IGR Structural Glazing Tape (Cat 10)": mat_igr_structural_tape
         }
+
         def get_igr_required_quantity(category):
             if category == "IGR Glass (Cat 15)":
                 return total_area
@@ -1026,49 +973,52 @@ def igr_materials():
                <h2>IGR Material Cost Summary</h2>
                <form method='POST'>
                <table class='summary-table'>
-               <tr>""" + "".join(f"<th>{h}</th>" for h in ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead", "Discount/Surcharge", "Final Cost"]) + "</tr>"
+               <tr>{"".join(f"<th>{h}</th>" for h in ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead", "Discount/Surcharge", "Final Cost"])}</tr>
+        """
         for item in igr_items:
             discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
-            result_html += "<tr>"
-            result_html += f"<td>{item['Category']}</td>"
-            result_html += f"<td>{item['Selected Material']}</td>"
-            result_html += f"<td>{item['Unit Cost']:.2f}</td>"
-            result_html += f"<td>{item['Calculation']}</td>"
-            result_html += f"<td class='cost'>{item['Cost ($)']:.2f}</td>"
-            result_html += f"<td>{(item['Final Cost']/total_area if total_area>0 else 0):.2f}</td>"
-            result_html += f"<td>{(item['Final Cost']/total_final_cost*100 if total_final_cost>0 else 0):.2f}</td>"
-            result_html += f"<td>{item['Stock Level']}</td>"
-            result_html += f"<td>{item['Min Lead']}</td>"
-            result_html += f"<td>{item['Max Lead']}</td>"
-            result_html += f"<td><input type='number' step='1' name='{discount_key}' value='{item['Discount/Surcharge']}' oninput='updateFinalCost(this)' /></td>"
-            result_html += f"<td class='final-cost'>{item['Final Cost']:.2f}</td>"
-            result_html += "</tr>"
-        result_html += "</table>"
-        result_html += "<div style='margin-top:10px;'><label for='igr_note'>IGR Materials Note:</label><textarea id='igr_note' name='igr_note' rows='3' style='width:100%;'>" + cp.get("igr_note", "") + "</textarea></div>"
-        result_html += """
-        <script>
-        function updateFinalCost(input) {
-            var row = input.closest("tr");
-            var costCell = row.querySelector(".cost");
-            var finalCostCell = row.querySelector(".final-cost");
-            var discountValue = parseFloat(input.value) || 0;
-            var costValue = parseFloat(costCell.innerText) || 0;
-            var finalCost = costValue + discountValue;
-            finalCostCell.innerText = finalCost.toFixed(2);
-        }
-        </script>
-        </form>
-        <div class="btn-group">
-           <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back: Edit IGR Materials</button>
-           {next_button}
-        </div>
+            result_html += f"""
+               <tr>
+                 <td>{item['Category']}</td>
+                 <td>{item['Selected Material']}</td>
+                 <td>{item['Unit Cost']:.2f}</td>
+                 <td>{item['Calculation']}</td>
+                 <td class='cost'>{item['Cost ($)']:.2f}</td>
+                 <td>{(item['Final Cost'] / total_area if total_area > 0 else 0):.2f}</td>
+                 <td>{(item['Final Cost'] / total_final_cost * 100 if total_final_cost > 0 else 0):.2f}</td>
+                 <td>{item['Stock Level']}</td>
+                 <td>{item['Min Lead']}</td>
+                 <td>{item['Max Lead']}</td>
+                 <td><input type='number' step='1' name='{discount_key}' value='{item['Discount/Surcharge']}' oninput='updateFinalCost(this)' /></td>
+                 <td class='final-cost'>{item['Final Cost']:.2f}</td>
+               </tr>
+            """
+        result_html += f"""
+               </table>
+               <div style='margin-top:10px;'><label for='igr_note'>IGR Materials Note:</label><textarea id='igr_note' name='igr_note' rows='3' style='width:100%;'>{cp.get("igr_note", "")}</textarea></div>
+               <script>
+               function updateFinalCost(input) {{
+                   var row = input.closest("tr");
+                   var costCell = row.querySelector(".cost");
+                   var finalCostCell = row.querySelector(".final-cost");
+                   var discountValue = parseFloat(input.value) || 0;
+                   var costValue = parseFloat(costCell.innerText) || 0;
+                   var finalCost = costValue + discountValue;
+                   finalCostCell.innerText = finalCost.toFixed(2);
+               }}
+               </script>
+               </form>
+               <div class="btn-group">
+                  <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back: Edit IGR Materials</button>
+                  {next_button}
+               </div>
              </div>
            </body>
          </html>
         """
         return result_html
     else:
-        form_html = f"""
+        return f"""
     <html>
       <head>
          <title>IGR Materials</title>
@@ -1139,7 +1089,7 @@ def igr_materials():
                   </select>
                </div>
                <div class="btn-group">
-                  <button type="button" class="btn" onclick="window.location.href='/materials'">Back: SWR Materials</button>
+                  <button type="button" class="btn" onclick="window.location.href='/materials'">Back to SWR Materials</button>
                   <button type="submit" class="btn">Calculate IGR Material Costs</button>
                </div>
                <div style="margin-top:10px;">
@@ -1153,9 +1103,10 @@ def igr_materials():
     """
     return form_html
 
-# =========================
+
+# ==================================================
 # ADDITIONAL COSTS PAGE (Separate Sections)
-# =========================
+# ==================================================
 @app.route('/other_costs', methods=['GET', 'POST'])
 def other_costs():
     cp = get_current_project()
@@ -1223,7 +1174,6 @@ def other_costs():
         meals = float(request.form.get('meals', 0))
         car_rental = float(request.form.get('car_rental', 0))
         travel_cost = airfare + (daily_rate + lodging + meals + car_rental) * days_needed
-        # Installation Observation by INOVUES
         observation = request.form.get('installation_observation', 'No')
         if observation == "Yes":
             obs_daily_rate = float(request.form.get('obs_daily_rate', 207))
@@ -1245,8 +1195,7 @@ def other_costs():
         for item in sales_items:
             safe_item = item.replace(" ", "_")
             if request.form.get(safe_item):
-                sales_cost += float(request.form.get(safe_item + "_cost", 0))
-        # Save note fields for each section
+                sales_cost += float(request.form.get(safe_item + '_cost', 0))
         cp["fabrication_note"] = request.form.get("fabrication_note", "")
         cp["packaging_note"] = request.form.get("packaging_note", "")
         cp["installation_note"] = request.form.get("installation_note", "")
@@ -1255,16 +1204,15 @@ def other_costs():
         cp["sales_note"] = request.form.get("sales_note", "")
         save_current_project(cp)
 
-        # Merge Installation cost with Equipment and Travel
-        installation_total = installation_cost + equipment_cost + travel_cost
-
-        additional_total = fabrication_cost + packaging_cost + installation_total + sales_cost
+        additional_total = fabrication_cost + packaging_cost + installation_cost + equipment_cost + travel_cost + sales_cost
         material_cost = cp.get("material_total_cost", 0) + cp.get("igr_material_total_cost", 0)
         grand_total = material_cost + additional_total
 
         cp["fabrication_cost"] = fabrication_cost
         cp["packaging_cost"] = packaging_cost
-        cp["installation_cost"] = installation_total
+        cp["installation_cost"] = installation_cost
+        cp["equipment_cost"] = equipment_cost
+        cp["travel_cost"] = travel_cost
         cp["sales_cost"] = sales_cost
         cp["additional_total"] = additional_total
         cp["grand_total"] = grand_total
@@ -1283,7 +1231,9 @@ def other_costs():
                  <tr><th>Cost Category</th><th>Amount ($)</th></tr>
                  <tr><td>Fabrication</td><td>{fabrication_cost:.2f}</td></tr>
                  <tr><td>Packaging & Shipping</td><td>{packaging_cost:.2f}</td></tr>
-                 <tr><td>Installation</td><td>{installation_total:.2f}</td></tr>
+                 <tr><td>Installation</td><td>{installation_cost:.2f}</td></tr>
+                 <tr><td>Equipment</td><td>{equipment_cost:.2f}</td></tr>
+                 <tr><td>Travel</td><td>{travel_cost:.2f}</td></tr>
                  <tr><td>Sales</td><td>{sales_cost:.2f}</td></tr>
                  <tr><td><strong>Additional Total</strong></td><td><strong>{additional_total:.2f}</strong></td></tr>
                  <tr><th>Grand Total</th><th>{grand_total:.2f}</th></tr>
@@ -1299,6 +1249,10 @@ def other_costs():
                <div style="margin-top:10px;">
                   <label for="installation_note">Installation Note:</label>
                   <textarea id="installation_note" name="installation_note" rows="2" style="width:100%;">{cp.get("installation_note", "")}</textarea>
+               </div>
+               <div style="margin-top:10px;">
+                  <label for="equipment_note">Equipment Note:</label>
+                  <textarea id="equipment_note" name="equipment_note" rows="2" style="width:100%;">{cp.get("equipment_note", "")}</textarea>
                </div>
                <div style="margin-top:10px;">
                   <label for="travel_note">Travel Note:</label>
@@ -1372,10 +1326,10 @@ def other_costs():
                 <legend>Installation</legend>
                 <label for="installation_option">Select Labor Rate Option:</label>
                 <select id="installation_option" name="installation_option" onchange="checkInstallationOption()" required>
-                  <option value="inovues" {"selected" if cp.get('installation_option','')=="inovues" else ""}>$76.21 INOVUES installation labor rate</option>
-                  <option value="nonunion" {"selected" if cp.get('installation_option','')=="nonunion" else ""}>$85 general non-union labor rate</option>
-                  <option value="union" {"selected" if cp.get('installation_option','')=="union" else ""}>$112 general union labor rate</option>
-                  <option value="custom" {"selected" if cp.get('installation_option','')=="custom" else ""}>Custom</option>
+                  <option value="inovues" {"selected" if cp.get('installation_option', '') == "inovues" else ""}>$76.21 INOVUES installation labor rate</option>
+                  <option value="nonunion" {"selected" if cp.get('installation_option', '') == "nonunion" else ""}>$85 general non-union labor rate</option>
+                  <option value="union" {"selected" if cp.get('installation_option', '') == "union" else ""}>$112 general union labor rate</option>
+                  <option value="custom" {"selected" if cp.get('installation_option', '') == "custom" else ""}>Custom</option>
                 </select>
                 <div id="custom_installation">
                   <label for="custom_installation_label">Custom Labor Label:</label>
@@ -1423,8 +1377,8 @@ def other_costs():
                 <div>
                   <label for="installation_observation">Installation Observation by INOVUES:</label>
                   <select id="installation_observation" name="installation_observation" required>
-                    <option value="No" {"selected" if cp.get('installation_observation', 'No')=="No" else ""}>No</option>
-                    <option value="Yes" {"selected" if cp.get('installation_observation', 'No')=="Yes" else ""}>Yes</option>
+                    <option value="No" {"selected" if cp.get('installation_observation', 'No') == "No" else ""}>No</option>
+                    <option value="Yes" {"selected" if cp.get('installation_observation', 'No') == "Yes" else ""}>Yes</option>
                   </select>
                 </div>
                 <div>
@@ -1456,25 +1410,24 @@ def other_costs():
               <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
                 <legend>Sales</legend>
     """
-    # Sales section: selectable items with cost fields
-    sales_items = [
-        "Building Audit/Survey", "Detailed audit to inventory existing windows",
-        "System Design Customization", "Thermal Stress Analysis", "Structural Analysis",
-        "Thermal Performance Simulation/Analysis", "Visual & Performance Mockup",
-        "CEO Time (management & development)", "Additional Design Development for nontypical conditions",
-        "CFD analysis", "Window Performance M&V", "Building Energy Model",
-        "Cost-Benefit Analysis", "Utility Incentive Application"
-    ]
-    for item in sales_items:
-        safe_item = item.replace(" ", "_")
-        form_html += f"""
+        sales_items = [
+            "Building Audit/Survey", "Detailed audit to inventory existing windows",
+            "System Design Customization", "Thermal Stress Analysis", "Structural Analysis",
+            "Thermal Performance Simulation/Analysis", "Visual & Performance Mockup",
+            "CEO Time (management & development)", "Additional Design Development for nontypical conditions",
+            "CFD analysis", "Window Performance M&V", "Building Energy Model",
+            "Cost-Benefit Analysis", "Utility Incentive Application"
+        ]
+        for item in sales_items:
+            safe_item = item.replace(" ", "_")
+            form_html += f"""
                 <div>
                   <input type="checkbox" id="{safe_item}" name="{safe_item}" {"checked" if cp.get(safe_item) else ""}>
                   <label for="{safe_item}">{item}</label>
-                  <input type="number" step="0.01" id="{safe_item}_cost" name="{safe_item}_cost" placeholder="Cost ($)" value="{cp.get(safe_item + "_cost", "0")}">
+                  <input type="number" step="0.01" id="{safe_item}_cost" name="{safe_item}_cost" placeholder="Cost ($)" value="{cp.get(safe_item + '_cost', '0')}">
                 </div>
         """
-    form_html += """
+        form_html += """
                 <div style="margin-top:10px;">
                   <label for="sales_note">Sales Note:</label>
                   <textarea id="sales_note" name="sales_note" rows="2" style="width:100%;">""" + cp.get("sales_note", "") + """</textarea>
@@ -1496,26 +1449,28 @@ def other_costs():
       </body>
     </html>
     """
-    return form_html
+        return form_html
 
-# =========================
-# MARGINS PAGE
-# =========================
+
+# ==================================================
+# MARGINS PAGE (Combined: Set Margins and Final Cost with Margins)
+# ==================================================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
     cp = get_current_project()
-    # Update base_costs: "Product" = material cost + fabrication cost; "Packaging & Shipping" remains;
-    # "Installation" = merged installation cost (installation + equipment + travel); "Sales" remains.
+    # "Panel Total" = material cost + fabrication cost
     material_cost = cp.get("material_total_cost", 0) + cp.get("igr_material_total_cost", 0)
     fabrication_cost = cp.get("fabrication_cost", 0)
-    installation_merged = cp.get("installation_cost", 0)  # In other_costs, installation_cost was set as merged.
     base_costs = {
-        "Product": material_cost + fabrication_cost,
+        "Panel Total": material_cost + fabrication_cost,
         "Packaging & Shipping": cp.get("packaging_cost", 0),
-        "Installation": installation_merged,
+        "Installation": cp.get("installation_cost", 0),
+        "Equipment": cp.get("equipment_cost", 0),
+        "Travel": cp.get("travel_cost", 0),
         "Sales": cp.get("sales_cost", 0)
     }
     total_area = cp.get("swr_total_area", 0)
+
     if request.method == 'POST':
         margins_values = {}
         for category in base_costs:
@@ -1525,16 +1480,7 @@ def margins():
                 margins_values[category] = 0
         adjusted_costs = {cat: base_costs[cat] * (1 + margins_values[cat] / 100) for cat in base_costs}
         final_total = sum(adjusted_costs.values())
-        summary_data = {
-            "Category": list(base_costs.keys()) + ["Grand Total"],
-            "Original Cost ($)": [base_costs[cat] for cat in base_costs] + [sum(base_costs.values())],
-            "Margin (%)": [margins_values[cat] for cat in base_costs] + [""],
-            "Cost with Margin ($)": [adjusted_costs[cat] for cat in base_costs] + [final_total]
-        }
-        df_summary = pd.DataFrame(summary_data)
-        csv_buffer = io.StringIO()
-        df_summary.to_csv(csv_buffer, index=False)
-        csv_output = csv_buffer.getvalue()
+
         cp["final_summary"] = []
         for cat in base_costs:
             cp["final_summary"].append({
@@ -1545,6 +1491,15 @@ def margins():
             })
         cp["grand_total"] = final_total
         save_current_project(cp)
+
+        # Calculate weighted average panel area ("Pricing Area") and product pricing details
+        pricing_area = 0
+        if cp.get("swr_total_quantity", 0) > 0:
+            pricing_area = cp.get("swr_total_area", 0) / cp.get("swr_total_quantity", 0)
+        panelTotal = adjusted_costs["Panel Total"]
+        product_price_unit = panelTotal / cp.get("swr_total_quantity", 1) if cp.get("swr_total_quantity", 0) > 0 else 0
+        product_price_sf = panelTotal / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0
+
         result_html = f"""
          <html>
            <head>
@@ -1553,7 +1508,7 @@ def margins():
            </head>
            <body>
              <div class="container">
-               <h2>Final Cost with Margins</h2>
+               <h2>Final Cost with Margins and Product Pricing Details</h2>
                <table class="summary-table">
                  <tr>
                    <th>Category</th>
@@ -1577,13 +1532,31 @@ def margins():
                    <th>{final_total:.2f}</th>
                  </tr>
                </table>
+               <br>
+               <h3>Product Pricing Details</h3>
+               <table class="summary-table">
+                 <tr>
+                   <th>Product price/unit</th>
+                   <th>Product price/SF</th>
+                   <th>Pricing Area (SF)</th>
+                 </tr>
+                 <tr>
+                   <td id="productPriceUnit">${product_price_unit:.2f}</td>
+                   <td id="productPriceSF">${product_price_sf:.2f}</td>
+                   <td>{cp.get("swr_total_area", 0):.2f} SF</td>
+                 </tr>
+               </table>
                <div class="btn-group">
-                 <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
-                 <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
+                 <div class="btn-left">
+                    <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
+                 </div>
+                 <div class="btn-right">
+                    <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
+                 </div>
                </div>
                <div style="margin-top:10px;">
                  <form method="POST" action="/download_final_summary">
-                   <input type="hidden" name="csv_data" value='{csv_output}'>
+                   <input type="hidden" name="csv_data" value=''>
                    <button type="submit" class="btn btn-download">Download Final Summary CSV</button>
                  </form>
                </div>
@@ -1592,79 +1565,123 @@ def margins():
          </html>
         """
         return result_html
-    form_html = f"""
-    <html>
-      <head>
-         <title>Set Margins</title>
-         <style>{common_css}</style>
-         <script>
-            var baseCosts = {json.dumps(base_costs)};
-            var totalArea = {total_area};
-            function updateOutput(sliderId, outputId) {{
-                var slider = document.getElementById(sliderId);
-                var output = document.getElementById(outputId);
-                output.value = slider.value;
-                updateGrandPSF();
-            }}
-            function updateGrandPSF() {{
-                var categories = ["Product", "Packaging & Shipping", "Installation", "Sales"];
-                var sum = 0;
-                for (var i = 0; i < categories.length; i++) {{
-                    var cat = categories[i];
-                    var var_id = cat.replace(/[^a-zA-Z0-9]/g, "_");
-                    var slider = document.getElementById(var_id + "_margin");
-                    var margin = parseFloat(slider.value);
-                    var cost = baseCosts[cat];
-                    var adjusted = cost * (1 + margin / 100);
-                    sum += adjusted;
-                }}
-                var grandDisplay = document.getElementById("grand_psf");
-                if(totalArea > 0) {{
-                    var psf = sum / totalArea;
-                    grandDisplay.innerText = "$" + psf.toFixed(2) + " per SF";
-                }} else {{
-                    grandDisplay.innerText = "N/A";
-                }}
-            }}
-         </script>
-      </head>
-      <body>
-         <div class="container">
-            <h2>Set Margins for Each Cost Category</h2>
-            <form method="POST">
-    """
-    for category in base_costs:
-        var_id = category.replace(" ", "_").replace("&", "").replace("__", "_")
-        form_html += f"""
-                <div class="margin-row">
-                   <label for="{var_id}_margin">{ "Product margin" if category=="Product" else ( "Packaging & Shipping margin" if category=="Packaging & Shipping" else category + " margin") } (%):</label>
-                   <input type="range" id="{var_id}_margin" name="{category}_margin" min="0" max="100" step="1" value="{cp.get(category + '_margin', '0')}" oninput="updateOutput('{var_id}_margin', '{var_id}_output')">
-                   <output id="{var_id}_output">{cp.get(category + '_margin', '0')}</output>
-                </div>
+
+    else:
+        form_html = f"""
+        <html>
+          <head>
+            <title>Set Margins and View Final Cost with Margins</title>
+            <style>{common_css}</style>
+            <script>
+              var baseCosts = {json.dumps(base_costs)};
+              var totalArea = {total_area};
+
+              function updateOutput(sliderId, outputId) {{
+                  var slider = document.getElementById(sliderId);
+                  var output = document.getElementById(outputId);
+                  output.value = slider.value;
+                  updateTable();
+              }}
+
+              function updateTable() {{
+                  var categories = ["Panel Total", "Packaging & Shipping", "Installation", "Equipment", "Travel", "Sales"];
+                  var tableBody = document.getElementById("finalCostTableBody");
+                  var grandTotal = 0;
+                  var html = "";
+                  for (var i = 0; i < categories.length; i++) {{
+                      var cat = categories[i];
+                      var var_id = cat.replace(/\\s+/g, "_");
+                      var slider = document.getElementById(var_id + "_margin");
+                      var margin = parseFloat(slider.value);
+                      var original = baseCosts[cat];
+                      var adjusted = original * (1 + margin / 100);
+                      grandTotal += adjusted;
+                      html += "<tr>";
+                      html += "<td>" + cat + "</td>";
+                      html += "<td>" + original.toFixed(2) + "</td>";
+                      html += "<td>" + margin.toFixed(2) + "</td>";
+                      html += "<td>" + adjusted.toFixed(2) + "</td>";
+                      html += "</tr>";
+                  }}
+                  html += "<tr><th colspan='3'>Grand Total</th><th>" + grandTotal.toFixed(2) + "</th></tr>";
+                  document.getElementById("finalCostTableBody").innerHTML = html;
+
+                  var swr_total_quantity = {cp.get("swr_total_quantity", 0)};
+                  var swr_total_area = {cp.get("swr_total_area", 0)};
+                  var panelSlider = document.getElementById("Panel_Total_margin");
+                  var panelTotal = baseCosts["Panel Total"] * (1 + parseFloat(panelSlider.value)/100);
+                  var product_price_unit = swr_total_quantity > 0 ? panelTotal / swr_total_quantity : 0;
+                  var product_price_sf = swr_total_area > 0 ? panelTotal / swr_total_area : 0;
+                  document.getElementById("productPriceUnit").innerText = "$" + product_price_unit.toFixed(2);
+                  document.getElementById("productPriceSF").innerText = "$" + product_price_sf.toFixed(2);
+              }}
+
+              window.onload = updateTable;
+            </script>
+          </head>
+          <body>
+            <div class="container">
+              <h2>Set Margins and View Final Cost with Margins</h2>
+              <form method="POST">
         """
-    form_html += """
+        for category in base_costs:
+            var_id = category.replace(" ", "_")
+            form_html += f"""
+                  <div class="margin-row">
+                    <label for="{var_id}_margin">{category} Margin (%):</label>
+                    <input type="range" id="{var_id}_margin" name="{category}_margin" min="0" max="100" step="1" value="{cp.get(category + '_margin', '0')}" oninput="updateOutput('{var_id}_margin', '{var_id}_output')">
+                    <output id="{var_id}_output">{cp.get(category + '_margin', '0')}</output>
+                  </div>
+            """
+        form_html += f"""
                 <div class="margin-row" style="justify-content:center;">
                     <label style="margin-right:10px;">Grand Total $ per SF:</label>
                     <span id="grand_psf">$0.00 per SF</span>
                 </div>
+                <h3>Final Cost with Margins</h3>
+                <table class="summary-table">
+                  <tr>
+                    <th>Category</th>
+                    <th>Original Cost ($)</th>
+                    <th>Margin (%)</th>
+                    <th>Cost with Margin ($)</th>
+                  </tr>
+                  <tbody id="finalCostTableBody">
+                  </tbody>
+                </table>
+                <br>
+                <h3>Product Pricing Details</h3>
+                <table class="summary-table">
+                  <tr>
+                    <th>Product price/unit</th>
+                    <th>Product price/SF</th>
+                    <th>Pricing Area (SF)</th>
+                  </tr>
+                  <tr>
+                    <td id="productPriceUnit">$0.00</td>
+                    <td id="productPriceSF">$0.00</td>
+                    <td>{cp.get("swr_total_area", 0):.2f} SF</td>
+                  </tr>
+                </table>
                 <div class="btn-group">
-                    <div class="btn-left">
-                        <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
-                    </div>
-                    <div class="btn-right">
-                        <button type="submit" class="btn">Calculate Final Cost with Margins</button>
-                    </div>
+                  <div class="btn-left">
+                    <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
+                  </div>
+                  <div class="btn-right">
+                    <button type="submit" class="btn">Save Margins & Final Cost</button>
+                  </div>
                 </div>
-            </form>
-         </div>
-      </body>
-    </html>
-    """
-    return form_html
+              </form>
+            </div>
+          </body>
+        </html>
+        """
+        return form_html
 
-# =========================
+
+# ==================================================
 # DOWNLOAD FINAL SUMMARY CSV
-# =========================
+# ==================================================
 @app.route('/download_final_summary', methods=['POST'])
 def download_final_summary():
     csv_data = create_final_summary_csv()
@@ -1673,6 +1690,7 @@ def download_final_summary():
         mimetype="text/csv",
         headers={"Content-disposition": "attachment; filename=final_cost_summary.csv"}
     )
+
 
 def create_final_summary_csv():
     cp = get_current_project()
@@ -1703,10 +1721,10 @@ def create_final_summary_csv():
     writer.writerow([combined_panels, combined_area, combined_perimeter, combined_horizontal, combined_vertical])
     writer.writerow([])
     writer.writerow(["Project Summary"])
-    writer.writerow(["Category", "Final Cost"])
+    writer.writerow(["Category", "Final Cost ($)"])
     writer.writerow([])
     writer.writerow(["Detailed SWR Itemized Costs"])
-    writer.writerow(["Category", "Selected Material", "Final Cost"])
+    writer.writerow(["Category", "Selected Material", "Final Cost ($)"])
     for item in cp.get("itemized_costs", []):
         writer.writerow([
             item.get("Category", ""),
@@ -1716,7 +1734,7 @@ def create_final_summary_csv():
     writer.writerow(["Materials Note:", cp.get("swr_note", "")])
     writer.writerow([])
     writer.writerow(["Detailed IGR Itemized Costs"])
-    writer.writerow(["Category", "Selected Material", "Final Cost"])
+    writer.writerow(["Category", "Selected Material", "Final Cost ($)"])
     for item in cp.get("igr_itemized_costs", []):
         writer.writerow([
             item.get("Category", ""),
@@ -1728,14 +1746,16 @@ def create_final_summary_csv():
     writer.writerow(["Fabrication Note:", cp.get("fabrication_note", "")])
     writer.writerow(["Packaging & Shipping Note:", cp.get("packaging_note", "")])
     writer.writerow(["Installation Note:", cp.get("installation_note", "")])
+    writer.writerow(["Equipment Note:", cp.get("equipment_note", "")])
     writer.writerow(["Travel Note:", cp.get("travel_note", "")])
     writer.writerow(["Sales Note:", cp.get("sales_note", "")])
     writer.writerow([])
     return output.getvalue()
 
-# =========================
+
+# ==================================================
 # EXCEL EXPORT (Detailed Final Export)
-# =========================
+# ==================================================
 def create_final_export_excel(margins_dict=None):
     cp = get_current_project()
     output = io.BytesIO()
@@ -1762,7 +1782,7 @@ def create_final_export_excel(margins_dict=None):
     ws.write("D6", "Vertical (ft)")
     ws.write("E6", cp.get("swr_total_vertical_ft", 0) + cp.get("igr_total_vertical_ft", 0))
     ws.write("G1", "Detailed SWR Itemized Costs")
-    headers_detail = ["Category", "Selected Material", "Final Cost"]
+    headers_detail = ["Category", "Selected Material", "Final Cost ($)"]
     for col, header in enumerate(headers_detail):
         ws.write(1, col, header)
     row = 2
@@ -1795,6 +1815,9 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 0, "Installation Note:")
     ws.write(row, 1, cp.get("installation_note", ""))
     row += 1
+    ws.write(row, 0, "Equipment Note:")
+    ws.write(row, 1, cp.get("equipment_note", ""))
+    row += 1
     ws.write(row, 0, "Travel Note:")
     ws.write(row, 1, cp.get("travel_note", ""))
     row += 1
@@ -1804,13 +1827,15 @@ def create_final_export_excel(margins_dict=None):
     output.seek(0)
     return output
 
-# =========================
+
+# ==================================================
 # DOWNLOAD FINAL EXPORT (Excel) ROUTE
-# =========================
+# ==================================================
 @app.route('/download_final_export')
 def download_final_export():
     excel_file = create_final_export_excel()
     return send_file(excel_file, attachment_filename="Project_Cost_Summary.xlsx", as_attachment=True)
+
 
 if __name__ == '__main__':
     with app.app_context():
