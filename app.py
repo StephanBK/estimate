@@ -1455,6 +1455,9 @@ def other_costs():
 # ==================================================
 # MARGINS PAGE (Combined: Set Margins and Final Cost with Margins)
 # ==================================================
+# ==================================================
+# MARGINS PAGE (Combined: Set Margins and Final Cost with Margins)
+# ==================================================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
     cp = get_current_project()
@@ -1490,15 +1493,44 @@ def margins():
                 "Cost with Margin ($)": adjusted_costs[cat]
             })
         cp["grand_total"] = final_total
-        save_current_project(cp)
 
-        # Calculate weighted average panel area ("Pricing Area") and product pricing details
-        pricing_area = 0
-        if cp.get("swr_total_quantity", 0) > 0:
-            pricing_area = cp.get("swr_total_area", 0) / cp.get("swr_total_quantity", 0)
-        panelTotal = adjusted_costs["Panel Total"]
-        product_price_unit = panelTotal / cp.get("swr_total_quantity", 1) if cp.get("swr_total_quantity", 0) > 0 else 0
-        product_price_sf = panelTotal / cp.get("swr_total_area", 1) if cp.get("swr_total_area", 0) > 0 else 0
+        # --- New Lead Time Calculations ---
+        total_panels = cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0)
+        min_lead_fabrication = 1 + (total_panels / (12 * 40))
+        max_lead_fabrication = 1 + (total_panels / (6 * 40))
+
+        # Gather selected SWR material IDs (adjust keys as needed)
+        material_keys = [
+            "material_glass", "material_aluminum", "material_retainer", "material_glazing",
+            "material_gaskets", "material_corner_keys", "material_dual_lock",
+            "material_foam_baffle", "material_foam_baffle_bottom", "material_glass_protection",
+            "material_tape", "material_head_retainers", "material_screws"
+        ]
+        selected_materials = []
+        for key in material_keys:
+            mat_id = cp.get(key)
+            if mat_id:
+                m = Material.query.get(mat_id)
+                if m:
+                    selected_materials.append(m)
+        if selected_materials:
+            min_lead_material = max([m.min_lead for m in selected_materials if m.min_lead is not None])
+            max_lead_material = max([m.max_lead for m in selected_materials if m.max_lead is not None])
+        else:
+            min_lead_material = 0
+            max_lead_material = 0
+
+        min_total_lead = min_lead_material + min_lead_fabrication
+        max_total_lead = max_lead_material + max_lead_fabrication
+
+        cp["min_lead_material"] = min_lead_material
+        cp["max_lead_material"] = max_lead_material
+        cp["min_lead_fabrication"] = min_lead_fabrication
+        cp["max_lead_fabrication"] = max_lead_fabrication
+        cp["min_total_lead"] = min_total_lead
+        cp["max_total_lead"] = max_total_lead
+        save_current_project(cp)
+        # --- End New Lead Time Calculations ---
 
         result_html = f"""
          <html>
@@ -1541,9 +1573,33 @@ def margins():
                    <th>Pricing Area (SF)</th>
                  </tr>
                  <tr>
-                   <td id="productPriceUnit">${product_price_unit:.2f}</td>
-                   <td id="productPriceSF">${product_price_sf:.2f}</td>
+                   <td id="productPriceUnit">${(adjusted_costs['Panel Total'] / cp.get("swr_total_quantity", 1)):.2f}</td>
+                   <td id="productPriceSF">${(adjusted_costs['Panel Total'] / cp.get("swr_total_area", 1)):.2f}</td>
                    <td>{cp.get("swr_total_area", 0):.2f} SF</td>
+                 </tr>
+               </table>
+               <br>
+               <h3>Lead Time Summary (weeks)</h3>
+               <table class="summary-table">
+                 <tr>
+                   <th>Metric</th>
+                   <th>Min (weeks)</th>
+                   <th>Max (weeks)</th>
+                 </tr>
+                 <tr>
+                   <td>Lead Material</td>
+                   <td>{min_lead_material:.2f}</td>
+                   <td>{max_lead_material:.2f}</td>
+                 </tr>
+                 <tr>
+                   <td>Lead Fabrication</td>
+                   <td>{min_lead_fabrication:.2f}</td>
+                   <td>{max_lead_fabrication:.2f}</td>
+                 </tr>
+                 <tr>
+                   <td>Total Lead</td>
+                   <td>{min_total_lead:.2f}</td>
+                   <td>{max_total_lead:.2f}</td>
                  </tr>
                </table>
                <div class="btn-group">
@@ -1677,11 +1733,6 @@ def margins():
         </html>
         """
         return form_html
-
-
-# ==================================================
-# DOWNLOAD FINAL SUMMARY CSV
-# ==================================================
 @app.route('/download_final_summary', methods=['POST'])
 def download_final_summary():
     csv_data = create_final_summary_csv()
@@ -1750,6 +1801,14 @@ def create_final_summary_csv():
     writer.writerow(["Travel Note:", cp.get("travel_note", "")])
     writer.writerow(["Sales Note:", cp.get("sales_note", "")])
     writer.writerow([])
+    writer.writerow([])
+    writer.writerow(["Lead Time Summary (weeks)"])
+    writer.writerow(["Minimum Lead Material", cp.get("min_lead_material", 0)])
+    writer.writerow(["Maximum Lead Material", cp.get("max_lead_material", 0)])
+    writer.writerow(["Minimum Lead Fabrication", cp.get("min_lead_fabrication", 0)])
+    writer.writerow(["Maximum Lead Fabrication", cp.get("max_lead_fabrication", 0)])
+    writer.writerow(["Minimum Total Lead", cp.get("min_total_lead", 0)])
+    writer.writerow(["Maximum Total Lead", cp.get("max_total_lead", 0)])
     return output.getvalue()
 
 
@@ -1823,6 +1882,27 @@ def create_final_export_excel(margins_dict=None):
     row += 1
     ws.write(row, 0, "Sales Note:")
     ws.write(row, 1, cp.get("sales_note", ""))
+    # Add a blank row
+    row += 2
+    ws.write(row, 0, "Lead Time Summary (weeks)")
+    row += 1
+    ws.write(row, 0, "Minimum Lead Material:")
+    ws.write(row, 1, cp.get("min_lead_material", 0))
+    row += 1
+    ws.write(row, 0, "Maximum Lead Material:")
+    ws.write(row, 1, cp.get("max_lead_material", 0))
+    row += 1
+    ws.write(row, 0, "Minimum Lead Fabrication:")
+    ws.write(row, 1, cp.get("min_lead_fabrication", 0))
+    row += 1
+    ws.write(row, 0, "Maximum Lead Fabrication:")
+    ws.write(row, 1, cp.get("max_lead_fabrication", 0))
+    row += 1
+    ws.write(row, 0, "Minimum Total Lead:")
+    ws.write(row, 1, cp.get("min_total_lead", 0))
+    row += 1
+    ws.write(row, 0, "Maximum Total Lead:")
+    ws.write(row, 1, cp.get("max_total_lead", 0))
     writer.close()
     output.seek(0)
     return output
