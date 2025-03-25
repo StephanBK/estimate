@@ -1475,15 +1475,15 @@ def margins():
     total_area = cp.get("swr_total_area", 0)
 
     if request.method == 'POST':
+        # Process category margins
         margins_values = {}
-        for category in base_costs:
+        for cat in base_costs:
             try:
-                margins_values[category] = float(request.form.get(f"{category}_margin", 0))
+                margins_values[cat] = float(request.form.get(f"{cat}_margin", 0))
             except:
-                margins_values[category] = 0
+                margins_values[cat] = 0
         adjusted_costs = {cat: base_costs[cat] * (1 + margins_values[cat] / 100) for cat in base_costs}
         final_total = sum(adjusted_costs.values())
-
         cp["final_summary"] = []
         for cat in base_costs:
             cp["final_summary"].append({
@@ -1493,230 +1493,307 @@ def margins():
                 "Cost with Margin ($)": adjusted_costs[cat]
             })
         cp["grand_total"] = final_total
-
-        # --- New Lead Time Calculations ---
-        total_panels = cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0)
-        min_lead_fabrication = 1 + (total_panels / (12 * 40))
-        max_lead_fabrication = 1 + (total_panels / (6 * 40))
-
-        # Gather selected SWR material IDs (adjust keys as needed)
-        material_keys = [
-            "material_glass", "material_aluminum", "material_retainer", "material_glazing",
-            "material_gaskets", "material_corner_keys", "material_dual_lock",
-            "material_foam_baffle", "material_foam_baffle_bottom", "material_glass_protection",
-            "material_tape", "material_head_retainers", "material_screws"
-        ]
-        selected_materials = []
-        for key in material_keys:
-            mat_id = cp.get(key)
-            if mat_id:
-                m = Material.query.get(mat_id)
-                if m:
-                    selected_materials.append(m)
-        if selected_materials:
-            min_lead_material = max([m.min_lead for m in selected_materials if m.min_lead is not None])
-            max_lead_material = max([m.max_lead for m in selected_materials if m.max_lead is not None])
-        else:
-            min_lead_material = 0
-            max_lead_material = 0
-
-        min_total_lead = min_lead_material + min_lead_fabrication
-        max_total_lead = max_lead_material + max_lead_fabrication
-
-        cp["min_lead_material"] = min_lead_material
-        cp["max_lead_material"] = max_lead_material
-        cp["min_lead_fabrication"] = min_lead_fabrication
-        cp["max_lead_fabrication"] = max_lead_fabrication
-        cp["min_total_lead"] = min_total_lead
-        cp["max_total_lead"] = max_total_lead
         save_current_project(cp)
-        # --- End New Lead Time Calculations ---
 
+        # Process additional pricing adjustments (all percentages)
+        try:
+            product_discount_pct = float(request.form.get("product_discount_pct", 0))
+        except:
+            product_discount_pct = 0
+        try:
+            finders_fee_pct = float(request.form.get("finders_fee_pct", 0))
+        except:
+            finders_fee_pct = 0
+        try:
+            sales_commission_pct = float(request.form.get("sales_commission_pct", 0))
+        except:
+            sales_commission_pct = 0
+        try:
+            sales_tax_pct = float(request.form.get("sales_tax_pct", 0))
+        except:
+            sales_tax_pct = 0
+
+        cp["product_discount_pct"] = product_discount_pct
+        cp["finders_fee_pct"] = finders_fee_pct
+        cp["sales_commission_pct"] = sales_commission_pct
+        cp["sales_tax_pct"] = sales_tax_pct
+
+        panelTotal = adjusted_costs["Panel Total"]
+        discount_amount = panelTotal * (product_discount_pct / 100)
+        finders_fee_amount = panelTotal * (finders_fee_pct / 100)
+        sales_commission_amount = panelTotal * (sales_commission_pct / 100)
+        product_total = panelTotal - discount_amount - finders_fee_amount - sales_commission_amount
+        sales_tax_amount = product_total * (sales_tax_pct / 100)
+        product_total_after_tax = product_total + sales_tax_amount
+        other_costs = (base_costs["Packaging & Shipping"] + base_costs["Installation"] +
+                       base_costs["Equipment"] + base_costs["Travel"] + base_costs["Sales"])
+        total_sell_price = product_total_after_tax + other_costs
+        product_plus_installation = product_total + base_costs["Installation"]
+        total_cost = sum(base_costs.values())
+        actual_profit = total_sell_price - total_cost
+        profit_margin = (actual_profit / total_sell_price * 100) if total_sell_price > 0 else 0
+
+        cp["product_discount_amount"] = discount_amount
+        cp["finders_fee_amount"] = finders_fee_amount
+        cp["sales_commission_amount"] = sales_commission_amount
+        cp["sales_tax_amount"] = sales_tax_amount
+        cp["product_total"] = product_total
+        cp["product_total_after_tax"] = product_total_after_tax
+        cp["product_plus_installation"] = product_plus_installation
+        cp["total_sell_price"] = total_sell_price
+        cp["total_cost"] = total_cost
+        cp["actual_profit"] = actual_profit
+        cp["profit_margin"] = profit_margin
+
+        save_current_project(cp)
+
+        # Render final static result page
         result_html = f"""
-         <html>
-           <head>
-             <title>Final Cost with Margins</title>
-             <style>{common_css}</style>
-           </head>
-           <body>
-             <div class="container">
-               <h2>Final Cost with Margins and Product Pricing Details</h2>
-               <table class="summary-table">
-                 <tr>
-                   <th>Category</th>
-                   <th>Original Cost ($)</th>
-                   <th>Margin (%)</th>
-                   <th>Cost with Margin ($)</th>
-                 </tr>
+        <html>
+          <head>
+            <title>Final Cost & Pricing Adjustments</title>
+            <style>{common_css}</style>
+          </head>
+          <body>
+            <div class="container">
+              <h2>Final Cost & Pricing Adjustments</h2>
+              <h3>Cost Summary (with Margins)</h3>
+              <table class="summary-table">
+                <tr>
+                  <th>Category</th>
+                  <th>Original Cost ($)</th>
+                  <th>Margin (%)</th>
+                  <th>Cost with Margin ($)</th>
+                </tr>
         """
         for cat in base_costs:
             result_html += f"""
-                 <tr>
-                   <td>{cat}</td>
-                   <td>{base_costs[cat]:.2f}</td>
-                   <td>{margins_values[cat]:.2f}</td>
-                   <td>{adjusted_costs[cat]:.2f}</td>
-                 </tr>
+                <tr>
+                  <td>{cat}</td>
+                  <td>{base_costs[cat]:.2f}</td>
+                  <td>{margins_values[cat]:.2f}</td>
+                  <td>{adjusted_costs[cat]:.2f}</td>
+                </tr>
             """
         result_html += f"""
-                 <tr>
-                   <th colspan="3">Grand Total</th>
-                   <th>{final_total:.2f}</th>
-                 </tr>
-               </table>
-               <br>
-               <h3>Product Pricing Details</h3>
-               <table class="summary-table">
-                 <tr>
-                   <th>Product price/unit</th>
-                   <th>Product price/SF</th>
-                   <th>Pricing Area (SF)</th>
-                 </tr>
-                 <tr>
-                   <td id="productPriceUnit">${(adjusted_costs['Panel Total'] / cp.get("swr_total_quantity", 1)):.2f}</td>
-                   <td id="productPriceSF">${(adjusted_costs['Panel Total'] / cp.get("swr_total_area", 1)):.2f}</td>
-                   <td>{cp.get("swr_total_area", 0):.2f} SF</td>
-                 </tr>
-               </table>
-               <br>
-               <h3>Lead Time Summary (weeks)</h3>
-               <table class="summary-table">
-                 <tr>
-                   <th>Metric</th>
-                   <th>Min (weeks)</th>
-                   <th>Max (weeks)</th>
-                 </tr>
-                 <tr>
-                   <td>Lead Material</td>
-                   <td>{min_lead_material:.2f}</td>
-                   <td>{max_lead_material:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Lead Fabrication</td>
-                   <td>{min_lead_fabrication:.2f}</td>
-                   <td>{max_lead_fabrication:.2f}</td>
-                 </tr>
-                 <tr>
-                   <td>Total Lead</td>
-                   <td>{min_total_lead:.2f}</td>
-                   <td>{max_total_lead:.2f}</td>
-                 </tr>
-               </table>
-               <div class="btn-group">
-                 <div class="btn-left">
-                    <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
-                 </div>
-                 <div class="btn-right">
-                    <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
-                 </div>
-               </div>
-               <div style="margin-top:10px;">
-                 <form method="POST" action="/download_final_summary">
-                   <input type="hidden" name="csv_data" value=''>
-                   <button type="submit" class="btn btn-download">Download Final Summary CSV</button>
-                 </form>
-               </div>
-             </div>
-           </body>
-         </html>
+                <tr>
+                  <th colspan="3">Grand Total</th>
+                  <th>{final_total:.2f}</th>
+                </tr>
+              </table>
+              <h3>Additional Pricing Adjustments</h3>
+              <table class="summary-table">
+                <tr>
+                  <th>Adjustment</th>
+                  <th>Percentage (%)</th>
+                  <th>Amount ($)</th>
+                </tr>
+                <tr>
+                  <td>Product Discount</td>
+                  <td>{product_discount_pct:.2f}</td>
+                  <td>{discount_amount:.2f}</td>
+                </tr>
+                <tr>
+                  <td>Finders Fee</td>
+                  <td>{finders_fee_pct:.2f}</td>
+                  <td>{finders_fee_amount:.2f}</td>
+                </tr>
+                <tr>
+                  <td>Sales Commission</td>
+                  <td>{sales_commission_pct:.2f}</td>
+                  <td>{sales_commission_amount:.2f}</td>
+                </tr>
+                <tr>
+                  <td>Sales Tax</td>
+                  <td>{sales_tax_pct:.2f}</td>
+                  <td>{sales_tax_amount:.2f}</td>
+                </tr>
+              </table>
+              <h3>Product Pricing</h3>
+              <table class="summary-table">
+                <tr>
+                  <th>Product Total ($)</th>
+                  <th>Product + Installation ($)</th>
+                  <th>Total Sell Price ($)</th>
+                </tr>
+                <tr>
+                  <td>{product_total:.2f}</td>
+                  <td>{product_plus_installation:.2f}</td>
+                  <td>{total_sell_price:.2f}</td>
+                </tr>
+              </table>
+              <h3>Final Analysis</h3>
+              <table class="summary-table">
+                <tr>
+                  <th>Total Sell Price per SF</th>
+                  <th>Total Sell Price per Panel</th>
+                  <th>Total Cost ($)</th>
+                  <th>Actual Profit ($)</th>
+                  <th>Profit Margin (%)</th>
+                </tr>
+                <tr>
+                  <td>{(total_sell_price / total_area) if total_area > 0 else 0:.2f}</td>
+                  <td>{(total_sell_price / cp.get("swr_total_quantity",1)) if cp.get("swr_total_quantity",0) > 0 else 0:.2f}</td>
+                  <td>{total_cost:.2f}</td>
+                  <td>{actual_profit:.2f}</td>
+                  <td>{profit_margin:.2f}</td>
+                </tr>
+              </table>
+              <div class="btn-group" style="margin-top:15px;">
+                <div class="btn-left">
+                  <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
+                </div>
+                <div class="btn-right">
+                  <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
+                </div>
+              </div>
+              <div style="margin-top:10px;">
+                <form method="POST" action="/download_final_summary">
+                  <input type="hidden" name="csv_data" value=''>
+                  <button type="submit" class="btn btn-download">Download Final Summary CSV</button>
+                </form>
+              </div>
+            </div>
+          </body>
+        </html>
         """
         return result_html
 
     else:
-        form_html = f"""
+        # GET branch: Render an interactive form with sliders for margins and additional adjustments.
+        return f"""
         <html>
           <head>
-            <title>Set Margins and View Final Cost with Margins</title>
+            <title>Set Margins & Pricing Adjustments</title>
             <style>{common_css}</style>
             <script>
               var baseCosts = {json.dumps(base_costs)};
-              var totalArea = {total_area};
-
               function updateOutput(sliderId, outputId) {{
                   var slider = document.getElementById(sliderId);
                   var output = document.getElementById(outputId);
-                  output.value = slider.value;
-                  updateTable();
+                  output.innerText = slider.value;
+                  updateCalculations();
               }}
 
-              function updateTable() {{
+              function updateCalculations() {{
+                  // Category margins calculations
                   var categories = ["Panel Total", "Packaging & Shipping", "Installation", "Equipment", "Travel", "Sales"];
-                  var tableBody = document.getElementById("finalCostTableBody");
+                  var margins = {{}};
+                  var adjusted = {{}};
                   var grandTotal = 0;
-                  var html = "";
                   for (var i = 0; i < categories.length; i++) {{
                       var cat = categories[i];
                       var var_id = cat.replace(/\\s+/g, "_");
-                      var slider = document.getElementById(var_id + "_margin");
-                      var margin = parseFloat(slider.value);
+                      var margin = parseFloat(document.getElementById(var_id + "_margin").value);
+                      margins[cat] = margin;
                       var original = baseCosts[cat];
-                      var adjusted = original * (1 + margin / 100);
-                      grandTotal += adjusted;
-                      html += "<tr>";
-                      html += "<td>" + cat + "</td>";
-                      html += "<td>" + original.toFixed(2) + "</td>";
-                      html += "<td>" + margin.toFixed(2) + "</td>";
-                      html += "<td>" + adjusted.toFixed(2) + "</td>";
-                      html += "</tr>";
+                      var adj = original * (1 + margin/100);
+                      adjusted[cat] = adj;
+                      grandTotal += adj;
                   }}
-                  html += "<tr><th colspan='3'>Grand Total</th><th>" + grandTotal.toFixed(2) + "</th></tr>";
-                  document.getElementById("finalCostTableBody").innerHTML = html;
+                  // Panel total after margins
+                  var panelTotal = adjusted["Panel Total"];
 
-                  var swr_total_quantity = {cp.get("swr_total_quantity", 0)};
-                  var swr_total_area = {cp.get("swr_total_area", 0)};
-                  var panelSlider = document.getElementById("Panel_Total_margin");
-                  var panelTotal = baseCosts["Panel Total"] * (1 + parseFloat(panelSlider.value)/100);
-                  var product_price_unit = swr_total_quantity > 0 ? panelTotal / swr_total_quantity : 0;
-                  var product_price_sf = swr_total_area > 0 ? panelTotal / swr_total_area : 0;
-                  document.getElementById("productPriceUnit").innerText = "$" + product_price_unit.toFixed(2);
-                  document.getElementById("productPriceSF").innerText = "$" + product_price_sf.toFixed(2);
+                  // Additional pricing adjustments
+                  var product_discount_pct = parseFloat(document.getElementById("product_discount_pct").value);
+                  var finders_fee_pct = parseFloat(document.getElementById("finders_fee_pct").value);
+                  var sales_commission_pct = parseFloat(document.getElementById("sales_commission_pct").value);
+                  var sales_tax_pct = parseFloat(document.getElementById("sales_tax_pct").value);
+
+                  var discount_amount = panelTotal * (product_discount_pct / 100);
+                  var finders_fee_amount = panelTotal * (finders_fee_pct / 100);
+                  var sales_commission_amount = panelTotal * (sales_commission_pct / 100);
+                  var product_total = panelTotal - discount_amount - finders_fee_amount - sales_commission_amount;
+                  var sales_tax_amount = product_total * (sales_tax_pct / 100);
+                  var product_total_after_tax = product_total + sales_tax_amount;
+                  var other_costs = baseCosts["Packaging & Shipping"] + baseCosts["Installation"] + baseCosts["Equipment"] + baseCosts["Travel"] + baseCosts["Sales"];
+                  var total_sell_price = product_total_after_tax + other_costs;
+                  var product_plus_installation = product_total + baseCosts["Installation"];
+                  var total_cost = 0;
+                  for (var key in baseCosts) {{
+                      total_cost += baseCosts[key];
+                  }}
+                  var actual_profit = total_sell_price - total_cost;
+                  var profit_margin = (actual_profit / total_sell_price * 100) || 0;
+
+                  // Update dynamic displays for additional adjustments in $
+                  document.getElementById("discount_amount_display").innerText = "$" + discount_amount.toFixed(2);
+                  document.getElementById("finders_fee_amount_display").innerText = "$" + finders_fee_amount.toFixed(2);
+                  document.getElementById("sales_commission_amount_display").innerText = "$" + sales_commission_amount.toFixed(2);
+                  document.getElementById("sales_tax_amount_display").innerText = "$" + sales_tax_amount.toFixed(2);
+
+                  // Update dynamic displays for final calculations
+                  document.getElementById("dynamic_panel_total").innerText = "$" + panelTotal.toFixed(2);
+                  document.getElementById("dynamic_product_total").innerText = "$" + product_total.toFixed(2);
+                  document.getElementById("dynamic_product_total_after_tax").innerText = "$" + product_total_after_tax.toFixed(2);
+                  document.getElementById("dynamic_total_sell_price").innerText = "$" + total_sell_price.toFixed(2);
+                  document.getElementById("dynamic_product_plus_installation").innerText = "$" + product_plus_installation.toFixed(2);
+                  document.getElementById("dynamic_total_cost").innerText = "$" + total_cost.toFixed(2);
+                  document.getElementById("dynamic_actual_profit").innerText = "$" + actual_profit.toFixed(2);
+                  document.getElementById("dynamic_profit_margin").innerText = profit_margin.toFixed(2) + "%";
               }}
 
-              window.onload = updateTable;
+              window.onload = updateCalculations;
             </script>
           </head>
           <body>
             <div class="container">
-              <h2>Set Margins and View Final Cost with Margins</h2>
+              <h2>Set Margins & Pricing Adjustments</h2>
               <form method="POST">
-        """
-        for category in base_costs:
-            var_id = category.replace(" ", "_")
-            form_html += f"""
-                  <div class="margin-row">
-                    <label for="{var_id}_margin">{category} Margin (%):</label>
-                    <input type="range" id="{var_id}_margin" name="{category}_margin" min="0" max="100" step="1" value="{cp.get(category + '_margin', '0')}" oninput="updateOutput('{var_id}_margin', '{var_id}_output')">
-                    <output id="{var_id}_output">{cp.get(category + '_margin', '0')}</output>
-                  </div>
-            """
-        form_html += f"""
-                <div class="margin-row" style="justify-content:center;">
-                    <label style="margin-right:10px;">Grand Total $ per SF:</label>
-                    <span id="grand_psf">$0.00 per SF</span>
+                <h3>Category Margins</h3>
+        """ + "".join([f"""
+                <div class="margin-row">
+                  <label for="{cat.replace(' ', '_')}_margin">{cat} Margin (%):</label>
+                  <input type="range" style="width:200px;" id="{cat.replace(' ', '_')}_margin" name="{cat}_margin" min="0" max="100" step="1" value="{cp.get(cat + '_margin', 0)}" oninput="updateOutput('{cat.replace(' ', '_')}_margin', '{cat.replace(' ', '_')}_output')">
+                  <output id="{cat.replace(' ', '_')}_output" style="margin-right:10px;"></output>
                 </div>
-                <h3>Final Cost with Margins</h3>
+                """ for cat in base_costs]) + f"""
+                <h3>Additional Pricing Adjustments</h3>
+                <div class="margin-row">
+                  <label for="product_discount_pct">Product Discount (%):</label>
+                  <input type="range" style="width:200px;" id="product_discount_pct" name="product_discount_pct" min="0" max="100" step="1" value="{cp.get('product_discount_pct', 0)}" oninput="updateOutput('product_discount_pct', 'product_discount_output')">
+                  <output id="product_discount_output" style="margin-right:10px;"></output>
+                  <br><span>Discount Amount: <span id="discount_amount_display">$0.00</span></span>
+                </div>
+                <div class="margin-row">
+                  <label for="finders_fee_pct">Finders Fee (%):</label>
+                  <input type="range" style="width:200px;" id="finders_fee_pct" name="finders_fee_pct" min="0" max="100" step="1" value="{cp.get('finders_fee_pct', 0)}" oninput="updateOutput('finders_fee_pct', 'finders_fee_output')">
+                  <output id="finders_fee_output" style="margin-right:10px;"></output>
+                  <br><span>Finders Fee Amount: <span id="finders_fee_amount_display">$0.00</span></span>
+                </div>
+                <div class="margin-row">
+                  <label for="sales_commission_pct">Sales Commission (%):</label>
+                  <input type="range" style="width:200px;" id="sales_commission_pct" name="sales_commission_pct" min="0" max="100" step="1" value="{cp.get('sales_commission_pct', 0)}" oninput="updateOutput('sales_commission_pct', 'sales_commission_output')">
+                  <output id="sales_commission_output" style="margin-right:10px;"></output>
+                  <br><span>Sales Commission Amount: <span id="sales_commission_amount_display">$0.00</span></span>
+                </div>
+                <div class="margin-row">
+                  <label for="sales_tax_pct">Sales Tax (%):</label>
+                  <input type="range" style="width:200px;" id="sales_tax_pct" name="sales_tax_pct" min="0" max="100" step="1" value="{cp.get('sales_tax_pct', 0)}" oninput="updateOutput('sales_tax_pct', 'sales_tax_output')">
+                  <output id="sales_tax_output" style="margin-right:10px;"></output>
+                  <br><span>Sales Tax Amount: <span id="sales_tax_amount_display">$0.00</span></span>
+                </div>
+                <h3>Final Calculations</h3>
                 <table class="summary-table">
                   <tr>
-                    <th>Category</th>
-                    <th>Original Cost ($)</th>
-                    <th>Margin (%)</th>
-                    <th>Cost with Margin ($)</th>
-                  </tr>
-                  <tbody id="finalCostTableBody">
-                  </tbody>
-                </table>
-                <br>
-                <h3>Product Pricing Details</h3>
-                <table class="summary-table">
-                  <tr>
-                    <th>Product price/unit</th>
-                    <th>Product price/SF</th>
-                    <th>Pricing Area (SF)</th>
+                    <th>Dynamic Panel Total</th>
+                    <th>Dynamic Product Total</th>
+                    <th>Dynamic Product Total After Tax</th>
+                    <th>Dynamic Total Sell Price</th>
+                    <th>Dynamic Product + Installation</th>
+                    <th>Dynamic Total Cost</th>
+                    <th>Dynamic Actual Profit</th>
+                    <th>Dynamic Profit Margin (%)</th>
                   </tr>
                   <tr>
-                    <td id="productPriceUnit">$0.00</td>
-                    <td id="productPriceSF">$0.00</td>
-                    <td>{cp.get("swr_total_area", 0):.2f} SF</td>
+                    <td id="dynamic_panel_total">$0.00</td>
+                    <td id="dynamic_product_total">$0.00</td>
+                    <td id="dynamic_product_total_after_tax">$0.00</td>
+                    <td id="dynamic_total_sell_price">$0.00</td>
+                    <td id="dynamic_product_plus_installation">$0.00</td>
+                    <td id="dynamic_total_cost">$0.00</td>
+                    <td id="dynamic_actual_profit">$0.00</td>
+                    <td id="dynamic_profit_margin">0.00%</td>
                   </tr>
                 </table>
                 <div class="btn-group">
@@ -1724,7 +1801,7 @@ def margins():
                     <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
                   </div>
                   <div class="btn-right">
-                    <button type="submit" class="btn">Save Margins & Final Cost</button>
+                    <button type="submit" class="btn">Save Margins & Pricing Adjustments</button>
                   </div>
                 </div>
               </form>
