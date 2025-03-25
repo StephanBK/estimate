@@ -563,6 +563,7 @@ def materials_page():
             item["Discount/Surcharge"] = discount_value
             item["Final Cost"] = item["Cost ($)"] + discount_value
         total_final_cost = sum(item["Final Cost"] for item in materials_list)
+
         next_button = '<a href="/other_costs" class="btn">Next: Additional Costs</a>'
         result_html = f"""
          <html>
@@ -1518,11 +1519,13 @@ def margins():
         cp["sales_commission_pct"] = sales_commission_pct
         cp["sales_tax_pct"] = sales_tax_pct
 
+        # Note: Discount subtracts; finders fee and sales commission are added.
         panelTotal = adjusted_costs["Panel Total"]
         discount_amount = panelTotal * (product_discount_pct / 100)
         finders_fee_amount = panelTotal * (finders_fee_pct / 100)
         sales_commission_amount = panelTotal * (sales_commission_pct / 100)
-        product_total = panelTotal - discount_amount - finders_fee_amount - sales_commission_amount
+        # Here, we subtract discount and add the fees:
+        product_total = panelTotal - discount_amount + finders_fee_amount + sales_commission_amount
         sales_tax_amount = product_total * (sales_tax_pct / 100)
         product_total_after_tax = product_total + sales_tax_amount
         other_costs = (base_costs["Packaging & Shipping"] + base_costs["Installation"] +
@@ -1633,7 +1636,7 @@ def margins():
                 </tr>
                 <tr>
                   <td>{(total_sell_price / total_area) if total_area > 0 else 0:.2f}</td>
-                  <td>{(total_sell_price / cp.get("swr_total_quantity",1)) if cp.get("swr_total_quantity",0) > 0 else 0:.2f}</td>
+                  <td>{(total_sell_price / cp.get("swr_total_quantity", 1)) if cp.get("swr_total_quantity", 0) > 0 else 0:.2f}</td>
                   <td>{total_cost:.2f}</td>
                   <td>{actual_profit:.2f}</td>
                   <td>{profit_margin:.2f}</td>
@@ -1703,7 +1706,8 @@ def margins():
                   var discount_amount = panelTotal * (product_discount_pct / 100);
                   var finders_fee_amount = panelTotal * (finders_fee_pct / 100);
                   var sales_commission_amount = panelTotal * (sales_commission_pct / 100);
-                  var product_total = panelTotal - discount_amount - finders_fee_amount - sales_commission_amount;
+                  // Subtract discount, add fees:
+                  var product_total = panelTotal - discount_amount + finders_fee_amount + sales_commission_amount;
                   var sales_tax_amount = product_total * (sales_tax_pct / 100);
                   var product_total_after_tax = product_total + sales_tax_amount;
                   var other_costs = baseCosts["Packaging & Shipping"] + baseCosts["Installation"] + baseCosts["Equipment"] + baseCosts["Travel"] + baseCosts["Sales"];
@@ -1717,19 +1721,19 @@ def margins():
                   var profit_margin = (actual_profit / total_sell_price * 100) || 0;
 
                   // Update dynamic displays for additional adjustments in $
-                  document.getElementById("discount_amount_display").innerText = "$" + discount_amount.toFixed(2);
-                  document.getElementById("finders_fee_amount_display").innerText = "$" + finders_fee_amount.toFixed(2);
-                  document.getElementById("sales_commission_amount_display").innerText = "$" + sales_commission_amount.toFixed(2);
-                  document.getElementById("sales_tax_amount_display").innerText = "$" + sales_tax_amount.toFixed(2);
+                  document.getElementById("discount_amount_display").innerText = "$ " + discount_amount.toFixed(2);
+                  document.getElementById("finders_fee_amount_display").innerText = "$ " + finders_fee_amount.toFixed(2);
+                  document.getElementById("sales_commission_amount_display").innerText = "$ " + sales_commission_amount.toFixed(2);
+                  document.getElementById("sales_tax_amount_display").innerText = "$ " + sales_tax_amount.toFixed(2);
 
                   // Update dynamic displays for final calculations
-                  document.getElementById("dynamic_panel_total").innerText = "$" + panelTotal.toFixed(2);
-                  document.getElementById("dynamic_product_total").innerText = "$" + product_total.toFixed(2);
-                  document.getElementById("dynamic_product_total_after_tax").innerText = "$" + product_total_after_tax.toFixed(2);
-                  document.getElementById("dynamic_total_sell_price").innerText = "$" + total_sell_price.toFixed(2);
-                  document.getElementById("dynamic_product_plus_installation").innerText = "$" + product_plus_installation.toFixed(2);
-                  document.getElementById("dynamic_total_cost").innerText = "$" + total_cost.toFixed(2);
-                  document.getElementById("dynamic_actual_profit").innerText = "$" + actual_profit.toFixed(2);
+                  document.getElementById("dynamic_panel_total").innerText = "$ " + panelTotal.toFixed(2);
+                  document.getElementById("dynamic_product_total").innerText = "$ " + product_total.toFixed(2);
+                  document.getElementById("dynamic_product_total_after_tax").innerText = "$ " + product_total_after_tax.toFixed(2);
+                  document.getElementById("dynamic_total_sell_price").innerText = "$ " + total_sell_price.toFixed(2);
+                  document.getElementById("dynamic_product_plus_installation").innerText = "$ " + product_plus_installation.toFixed(2);
+                  document.getElementById("dynamic_total_cost").innerText = "$ " + total_cost.toFixed(2);
+                  document.getElementById("dynamic_actual_profit").innerText = "$ " + actual_profit.toFixed(2);
                   document.getElementById("dynamic_profit_margin").innerText = profit_margin.toFixed(2) + "%";
               }}
 
@@ -1753,25 +1757,25 @@ def margins():
                   <label for="product_discount_pct">Product Discount (%):</label>
                   <input type="range" style="width:200px;" id="product_discount_pct" name="product_discount_pct" min="0" max="100" step="1" value="{cp.get('product_discount_pct', 0)}" oninput="updateOutput('product_discount_pct', 'product_discount_output')">
                   <output id="product_discount_output" style="margin-right:10px;"></output>
-                  <br><span>Discount Amount: <span id="discount_amount_display">$0.00</span></span>
+                  <br><span>Discount Amount: <span id="discount_amount_display">$ 0.00</span></span>
                 </div>
                 <div class="margin-row">
                   <label for="finders_fee_pct">Finders Fee (%):</label>
                   <input type="range" style="width:200px;" id="finders_fee_pct" name="finders_fee_pct" min="0" max="100" step="1" value="{cp.get('finders_fee_pct', 0)}" oninput="updateOutput('finders_fee_pct', 'finders_fee_output')">
                   <output id="finders_fee_output" style="margin-right:10px;"></output>
-                  <br><span>Finders Fee Amount: <span id="finders_fee_amount_display">$0.00</span></span>
+                  <br><span>Finders Fee Amount: <span id="finders_fee_amount_display">$ 0.00</span></span>
                 </div>
                 <div class="margin-row">
                   <label for="sales_commission_pct">Sales Commission (%):</label>
                   <input type="range" style="width:200px;" id="sales_commission_pct" name="sales_commission_pct" min="0" max="100" step="1" value="{cp.get('sales_commission_pct', 0)}" oninput="updateOutput('sales_commission_pct', 'sales_commission_output')">
                   <output id="sales_commission_output" style="margin-right:10px;"></output>
-                  <br><span>Sales Commission Amount: <span id="sales_commission_amount_display">$0.00</span></span>
+                  <br><span>Sales Commission Amount: <span id="sales_commission_amount_display">$ 0.00</span></span>
                 </div>
                 <div class="margin-row">
                   <label for="sales_tax_pct">Sales Tax (%):</label>
                   <input type="range" style="width:200px;" id="sales_tax_pct" name="sales_tax_pct" min="0" max="100" step="1" value="{cp.get('sales_tax_pct', 0)}" oninput="updateOutput('sales_tax_pct', 'sales_tax_output')">
                   <output id="sales_tax_output" style="margin-right:10px;"></output>
-                  <br><span>Sales Tax Amount: <span id="sales_tax_amount_display">$0.00</span></span>
+                  <br><span>Sales Tax Amount: <span id="sales_tax_amount_display">$ 0.00</span></span>
                 </div>
                 <h3>Final Calculations</h3>
                 <table class="summary-table">
@@ -1786,13 +1790,13 @@ def margins():
                     <th>Dynamic Profit Margin (%)</th>
                   </tr>
                   <tr>
-                    <td id="dynamic_panel_total">$0.00</td>
-                    <td id="dynamic_product_total">$0.00</td>
-                    <td id="dynamic_product_total_after_tax">$0.00</td>
-                    <td id="dynamic_total_sell_price">$0.00</td>
-                    <td id="dynamic_product_plus_installation">$0.00</td>
-                    <td id="dynamic_total_cost">$0.00</td>
-                    <td id="dynamic_actual_profit">$0.00</td>
+                    <td id="dynamic_panel_total">$ 0.00</td>
+                    <td id="dynamic_product_total">$ 0.00</td>
+                    <td id="dynamic_product_total_after_tax">$ 0.00</td>
+                    <td id="dynamic_total_sell_price">$ 0.00</td>
+                    <td id="dynamic_product_plus_installation">$ 0.00</td>
+                    <td id="dynamic_total_cost">$ 0.00</td>
+                    <td id="dynamic_actual_profit">$ 0.00</td>
                     <td id="dynamic_profit_margin">0.00%</td>
                   </tr>
                 </table>
@@ -1824,53 +1828,130 @@ def create_final_summary_csv():
     cp = get_current_project()
     output = io.StringIO()
     writer = csv.writer(output)
+
+    # Basic Project Details
     writer.writerow(["Customer Name:", cp.get("customer_name", "N/A")])
     writer.writerow(["Project Name:", cp.get("project_name", "Unnamed Project")])
     writer.writerow(["Estimated by:", cp.get("estimated_by", "N/A")])
     writer.writerow(["Date:", datetime.datetime.now().strftime("%Y-%m-%d")])
     writer.writerow([])
+
+    # Panels Summary
+    writer.writerow(["Panels Summary"])
+    writer.writerow(
+        ["Total Panels", "Total Area (sq ft)", "Total Perimeter (ft)", "Total Vertical (ft)", "Total Horizontal (ft)"])
     swr_panels = cp.get("swr_total_quantity", 0)
     swr_area = cp.get("swr_total_area", 0)
     swr_perimeter = cp.get("swr_total_perimeter", 0)
-    swr_horizontal = cp.get("swr_total_horizontal_ft", 0)
     swr_vertical = cp.get("swr_total_vertical_ft", 0)
+    swr_horizontal = cp.get("swr_total_horizontal_ft", 0)
     igr_panels = cp.get("igr_total_quantity", 0)
     igr_area = cp.get("igr_total_area", 0)
     igr_perimeter = cp.get("igr_total_perimeter", 0)
-    igr_horizontal = cp.get("igr_total_horizontal_ft", 0)
     igr_vertical = cp.get("igr_total_vertical_ft", 0)
-    combined_panels = swr_panels + igr_panels
-    combined_area = swr_area + igr_area
-    combined_perimeter = swr_perimeter + igr_perimeter
-    combined_horizontal = swr_horizontal + igr_horizontal
-    combined_vertical = swr_vertical + igr_vertical
-    writer.writerow(["Combined Totals"])
-    writer.writerow(["Panels", "Area (sq ft)", "Perimeter (ft)", "Horizontal (ft)", "Vertical (ft)"])
-    writer.writerow([combined_panels, combined_area, combined_perimeter, combined_horizontal, combined_vertical])
+    igr_horizontal = cp.get("igr_total_horizontal_ft", 0)
+    total_panels = swr_panels + igr_panels
+    total_area = swr_area + igr_area
+    total_perimeter = swr_perimeter + igr_perimeter
+    total_vertical = swr_vertical + igr_vertical
+    total_horizontal = swr_horizontal + igr_horizontal
+    writer.writerow([total_panels, total_area, total_perimeter, total_vertical, total_horizontal])
     writer.writerow([])
-    writer.writerow(["Project Summary"])
-    writer.writerow(["Category", "Final Cost ($)"])
-    writer.writerow([])
-    writer.writerow(["Detailed SWR Itemized Costs"])
-    writer.writerow(["Category", "Selected Material", "Final Cost ($)"])
+
+    # Detailed SWR Materials Itemized Costs
+    writer.writerow(["Detailed SWR Materials Itemized Costs"])
+    writer.writerow(["Category", "Selected Material", "Unit Cost", "Cost ($)", "Discount/Surcharge", "Final Cost ($)"])
     for item in cp.get("itemized_costs", []):
         writer.writerow([
             item.get("Category", ""),
             item.get("Selected Material", ""),
+            item.get("Unit Cost", 0),
+            item.get("Cost ($)", 0),
+            item.get("Discount/Surcharge", 0),
             item.get("Final Cost", 0)
         ])
     writer.writerow(["Materials Note:", cp.get("swr_note", "")])
     writer.writerow([])
-    writer.writerow(["Detailed IGR Itemized Costs"])
-    writer.writerow(["Category", "Selected Material", "Final Cost ($)"])
+
+    # Detailed IGR Materials Itemized Costs (including lead times)
+    writer.writerow(["Detailed IGR Materials Itemized Costs"])
+    writer.writerow(
+        ["Category", "Selected Material", "Unit Cost", "Cost ($)", "Discount/Surcharge", "Final Cost ($)", "Min Lead",
+         "Max Lead"])
     for item in cp.get("igr_itemized_costs", []):
         writer.writerow([
             item.get("Category", ""),
             item.get("Selected Material", ""),
-            item.get("Final Cost", 0)
+            item.get("Unit Cost", 0),
+            item.get("Cost ($)", 0),
+            item.get("Discount/Surcharge", 0),
+            item.get("Final Cost", 0),
+            item.get("Min Lead", "N/A"),
+            item.get("Max Lead", "N/A")
         ])
     writer.writerow(["IGR Materials Note:", cp.get("igr_note", "")])
     writer.writerow([])
+
+    # Margins and Pricing Adjustments
+    writer.writerow(["Margins and Pricing Adjustments"])
+    writer.writerow(["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"])
+    for item in cp.get("final_summary", []):
+        writer.writerow([
+            item.get("Category", ""),
+            item.get("Original Cost ($)", 0),
+            item.get("Margin (%)", 0),
+            item.get("Cost with Margin ($)", 0)
+        ])
+    writer.writerow(["Grand Total with Margins:", cp.get("grand_total", 0)])
+    writer.writerow([])
+
+    writer.writerow(["Additional Pricing Adjustments"])
+    writer.writerow(["Adjustment", "Percentage (%)", "Amount ($)"])
+    writer.writerow(["Product Discount", cp.get("product_discount_pct", 0), cp.get("product_discount_amount", 0)])
+    writer.writerow(["Finders Fee", cp.get("finders_fee_pct", 0), cp.get("finders_fee_amount", 0)])
+    writer.writerow(["Sales Commission", cp.get("sales_commission_pct", 0), cp.get("sales_commission_amount", 0)])
+    writer.writerow(["Sales Tax", cp.get("sales_tax_pct", 0), cp.get("sales_tax_amount", 0)])
+    writer.writerow([])
+
+    writer.writerow(["Product Pricing"])
+    writer.writerow(
+        ["Product Total ($)", "Product Total After Tax ($)", "Product + Installation ($)", "Total Sell Price ($)"])
+    writer.writerow([
+        cp.get("product_total", 0),
+        cp.get("product_total_after_tax", 0),
+        cp.get("product_plus_installation", 0),
+        cp.get("total_sell_price", 0)
+    ])
+    writer.writerow([])
+
+    writer.writerow(["Final Analysis"])
+    writer.writerow(["Total Sell Price per SF", "Total Sell Price per Panel", "Total Cost ($)", "Actual Profit ($)",
+                     "Profit Margin (%)"])
+    swr_total_area = cp.get("swr_total_area", 0)
+    swr_total_quantity = cp.get("swr_total_quantity", 0)
+    total_sell_price = cp.get("total_sell_price", 0)
+    total_cost = cp.get("total_cost", 0)
+    actual_profit = cp.get("actual_profit", 0)
+    profit_margin = cp.get("profit_margin", 0)
+    writer.writerow([
+        (total_sell_price / swr_total_area) if swr_total_area > 0 else 0,
+        (total_sell_price / swr_total_quantity) if swr_total_quantity > 0 else 0,
+        total_cost,
+        actual_profit,
+        profit_margin
+    ])
+    writer.writerow([])
+
+    # Lead Time Summary (side-by-side display)
+    writer.writerow(["Lead Time Summary (weeks)"])
+    writer.writerow(["Metric", "Min (weeks)", "Max (weeks)"])
+    writer.writerow(["Lead Material", cp.get("min_lead_material", 0), cp.get("max_lead_material", 0)])
+    writer.writerow(["Lead Fabrication", cp.get("min_lead_fabrication", 0), cp.get("max_lead_fabrication", 0)])
+    writer.writerow(["Total Lead", cp.get("min_total_lead", 0), cp.get("max_total_lead", 0)])
+    writer.writerow([])
+
+    # Additional Notes
+    writer.writerow(["Notes"])
     writer.writerow(["Fabrication Note:", cp.get("fabrication_note", "")])
     writer.writerow(["Packaging & Shipping Note:", cp.get("packaging_note", "")])
     writer.writerow(["Installation Note:", cp.get("installation_note", "")])
@@ -1878,15 +1959,9 @@ def create_final_summary_csv():
     writer.writerow(["Travel Note:", cp.get("travel_note", "")])
     writer.writerow(["Sales Note:", cp.get("sales_note", "")])
     writer.writerow([])
-    writer.writerow([])
-    writer.writerow(["Lead Time Summary (weeks)"])
-    writer.writerow(["Minimum Lead Material", cp.get("min_lead_material", 0)])
-    writer.writerow(["Maximum Lead Material", cp.get("max_lead_material", 0)])
-    writer.writerow(["Minimum Lead Fabrication", cp.get("min_lead_fabrication", 0)])
-    writer.writerow(["Maximum Lead Fabrication", cp.get("max_lead_fabrication", 0)])
-    writer.writerow(["Minimum Total Lead", cp.get("min_total_lead", 0)])
-    writer.writerow(["Maximum Total Lead", cp.get("max_total_lead", 0)])
+
     return output.getvalue()
+
 
 
 # ==================================================
