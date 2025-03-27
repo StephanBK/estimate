@@ -553,6 +553,7 @@ def materials_page():
                 "Cost ($)": cost_screws
             },
         ]
+        # Process each SWR material item:
         for item in materials_list:
             discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
             try:
@@ -562,8 +563,61 @@ def materials_page():
             cp[discount_key] = discount_value
             item["Discount/Surcharge"] = discount_value
             item["Final Cost"] = item["Cost ($)"] + discount_value
-        total_final_cost = sum(item["Final Cost"] for item in materials_list)
 
+        total_final_cost = sum(item["Final Cost"] for item in materials_list)
+        # Store the SWR itemized costs in the session for later use (e.g., in CSV export)
+        cp["itemized_costs"] = materials_list
+        save_current_project(cp)
+        # --- Begin Lead Time Calculations ---
+        selected_keys = [
+            "material_glass", "material_aluminum", "material_glazing",
+            "material_gaskets", "material_corner_keys", "material_dual_lock",
+            "material_foam_baffle", "material_foam_baffle_bottom",
+            "material_glass_protection", "material_tape", "material_head_retainers",
+            "material_screws"
+        ]
+        selected_materials = []
+        for key in selected_keys:
+            mat_id = cp.get(key)
+            if mat_id:
+                material = Material.query.get(mat_id)
+                if material:
+                    selected_materials.append(material)
+
+        # Gather lead time values from the selected materials
+        min_leads = [mat.min_lead for mat in selected_materials if mat.min_lead is not None]
+        max_leads = [mat.max_lead for mat in selected_materials if mat.max_lead is not None]
+
+        if min_leads:
+            # Choose the worst-case minimum lead (i.e. the highest among the minimums)
+            min_lead_material = max(min_leads)
+        else:
+            min_lead_material = 0
+
+        if max_leads:
+            # Choose the worst-case maximum lead (i.e. the highest among the maximums)
+            max_lead_material = max(max_leads)
+        else:
+            max_lead_material = 0
+
+        # Calculate fabrication lead times based on the total number of panels
+        total_panels = cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0)
+        min_lead_fabrication = 1 + (total_panels / (12 * 40))  # 1 week + fraction based on panel count
+        max_lead_fabrication = 1 + (total_panels / (6 * 40))  # 1 week + a larger fraction
+
+        # Total lead times are the sum of the material and fabrication lead times
+        min_total_lead = min_lead_material + min_lead_fabrication
+        max_total_lead = max_lead_material + max_lead_fabrication
+
+        # Store these values in the session
+        cp["min_lead_material"] = min_lead_material
+        cp["max_lead_material"] = max_lead_material
+        cp["min_lead_fabrication"] = min_lead_fabrication
+        cp["max_lead_fabrication"] = max_lead_fabrication
+        cp["min_total_lead"] = min_total_lead
+        cp["max_total_lead"] = max_total_lead
+        save_current_project(cp)
+        # --- End Lead Time Calculations ---
         next_button = '<a href="/other_costs" class="btn">Next: Additional Costs</a>'
         result_html = f"""
          <html>
@@ -962,6 +1016,7 @@ def igr_materials():
             item["Discount/Surcharge"] = discount_value
             item["Final Cost"] = item["Cost ($)"] + discount_value
         total_final_cost = sum(item["Final Cost"] for item in igr_items)
+        cp["igr_itemized_costs"] = igr_items
         next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
         result_html = f"""
          <html>
@@ -1524,7 +1579,6 @@ def margins():
         discount_amount = panelTotal * (product_discount_pct / 100)
         finders_fee_amount = panelTotal * (finders_fee_pct / 100)
         sales_commission_amount = panelTotal * (sales_commission_pct / 100)
-        # Here, we subtract discount and add the fees:
         product_total = panelTotal - discount_amount + finders_fee_amount + sales_commission_amount
         sales_tax_amount = product_total * (sales_tax_pct / 100)
         product_total_after_tax = product_total + sales_tax_amount
@@ -1548,9 +1602,24 @@ def margins():
         cp["actual_profit"] = actual_profit
         cp["profit_margin"] = profit_margin
 
+        # --- Compute Ultimate Lead Times (for SWR and IGR) ---
+        ultimate_min_lead_material = max(cp.get("min_lead_material", 0), cp.get("igr_min_lead_material", 0))
+        ultimate_max_lead_material = max(cp.get("max_lead_material", 0), cp.get("igr_max_lead_material", 0))
+        ultimate_min_lead_fabrication = max(cp.get("min_lead_fabrication", 0), cp.get("igr_min_lead_fabrication", 0))
+        ultimate_max_lead_fabrication = max(cp.get("max_lead_fabrication", 0), cp.get("igr_max_lead_fabrication", 0))
+        ultimate_min_total_lead = max(cp.get("min_total_lead", 0), cp.get("igr_min_total_lead", 0))
+        ultimate_max_total_lead = max(cp.get("max_total_lead", 0), cp.get("igr_max_total_lead", 0))
+
+        cp["ultimate_min_lead_material"] = ultimate_min_lead_material
+        cp["ultimate_max_lead_material"] = ultimate_max_lead_material
+        cp["ultimate_min_lead_fabrication"] = ultimate_min_lead_fabrication
+        cp["ultimate_max_lead_fabrication"] = ultimate_max_lead_fabrication
+        cp["ultimate_min_total_lead"] = ultimate_min_total_lead
+        cp["ultimate_max_total_lead"] = ultimate_max_total_lead
+
         save_current_project(cp)
 
-        # Render final static result page
+        # Render final static result page (including updated lead time summary)
         result_html = f"""
         <html>
           <head>
@@ -1642,6 +1711,29 @@ def margins():
                   <td>{profit_margin:.2f}</td>
                 </tr>
               </table>
+              <h3>Lead Time Summary (weeks)</h3>
+              <table class="summary-table">
+                <tr>
+                  <th>Metric</th>
+                  <th>Min (weeks)</th>
+                  <th>Max (weeks)</th>
+                </tr>
+                <tr>
+                  <td>Lead Material</td>
+                  <td>{cp.get("ultimate_min_lead_material", 0):.2f}</td>
+                  <td>{cp.get("ultimate_max_lead_material", 0):.2f}</td>
+                </tr>
+                <tr>
+                  <td>Lead Fabrication</td>
+                  <td>{cp.get("ultimate_min_lead_fabrication", 0):.2f}</td>
+                  <td>{cp.get("ultimate_max_lead_fabrication", 0):.2f}</td>
+                </tr>
+                <tr>
+                  <td>Total Lead</td>
+                  <td>{cp.get("ultimate_min_total_lead", 0):.2f}</td>
+                  <td>{cp.get("ultimate_max_total_lead", 0):.2f}</td>
+                </tr>
+              </table>
               <div class="btn-group" style="margin-top:15px;">
                 <div class="btn-left">
                   <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
@@ -1663,7 +1755,7 @@ def margins():
         return result_html
 
     else:
-        # GET branch: Render an interactive form with sliders for margins and additional adjustments.
+        # GET branch: Render interactive form with sliders for margins and additional pricing adjustments
         return f"""
         <html>
           <head>
@@ -1679,7 +1771,7 @@ def margins():
               }}
 
               function updateCalculations() {{
-                  // Category margins calculations
+                  // Calculate adjusted costs for each category
                   var categories = ["Panel Total", "Packaging & Shipping", "Installation", "Equipment", "Travel", "Sales"];
                   var margins = {{}};
                   var adjusted = {{}};
@@ -1694,20 +1786,18 @@ def margins():
                       adjusted[cat] = adj;
                       grandTotal += adj;
                   }}
-                  // Panel total after margins
-                  var panelTotal = adjusted["Panel Total"];
+                  document.getElementById("dynamic_panel_total").innerText = "$ " + adjusted["Panel Total"].toFixed(2);
 
-                  // Additional pricing adjustments
+                  // Process additional pricing adjustments
                   var product_discount_pct = parseFloat(document.getElementById("product_discount_pct").value);
                   var finders_fee_pct = parseFloat(document.getElementById("finders_fee_pct").value);
                   var sales_commission_pct = parseFloat(document.getElementById("sales_commission_pct").value);
                   var sales_tax_pct = parseFloat(document.getElementById("sales_tax_pct").value);
 
-                  var discount_amount = panelTotal * (product_discount_pct / 100);
-                  var finders_fee_amount = panelTotal * (finders_fee_pct / 100);
-                  var sales_commission_amount = panelTotal * (sales_commission_pct / 100);
-                  // Subtract discount, add fees:
-                  var product_total = panelTotal - discount_amount + finders_fee_amount + sales_commission_amount;
+                  var discount_amount = adjusted["Panel Total"] * (product_discount_pct / 100);
+                  var finders_fee_amount = adjusted["Panel Total"] * (finders_fee_pct / 100);
+                  var sales_commission_amount = adjusted["Panel Total"] * (sales_commission_pct / 100);
+                  var product_total = adjusted["Panel Total"] - discount_amount + finders_fee_amount + sales_commission_amount;
                   var sales_tax_amount = product_total * (sales_tax_pct / 100);
                   var product_total_after_tax = product_total + sales_tax_amount;
                   var other_costs = baseCosts["Packaging & Shipping"] + baseCosts["Installation"] + baseCosts["Equipment"] + baseCosts["Travel"] + baseCosts["Sales"];
@@ -1720,21 +1810,20 @@ def margins():
                   var actual_profit = total_sell_price - total_cost;
                   var profit_margin = (actual_profit / total_sell_price * 100) || 0;
 
-                  // Update dynamic displays for additional adjustments in $
+                  // Update dynamic displays for additional adjustments (with spacing)
                   document.getElementById("discount_amount_display").innerText = "$ " + discount_amount.toFixed(2);
                   document.getElementById("finders_fee_amount_display").innerText = "$ " + finders_fee_amount.toFixed(2);
                   document.getElementById("sales_commission_amount_display").innerText = "$ " + sales_commission_amount.toFixed(2);
                   document.getElementById("sales_tax_amount_display").innerText = "$ " + sales_tax_amount.toFixed(2);
 
                   // Update dynamic displays for final calculations
-                  document.getElementById("dynamic_panel_total").innerText = "$ " + panelTotal.toFixed(2);
                   document.getElementById("dynamic_product_total").innerText = "$ " + product_total.toFixed(2);
                   document.getElementById("dynamic_product_total_after_tax").innerText = "$ " + product_total_after_tax.toFixed(2);
                   document.getElementById("dynamic_total_sell_price").innerText = "$ " + total_sell_price.toFixed(2);
                   document.getElementById("dynamic_product_plus_installation").innerText = "$ " + product_plus_installation.toFixed(2);
                   document.getElementById("dynamic_total_cost").innerText = "$ " + total_cost.toFixed(2);
                   document.getElementById("dynamic_actual_profit").innerText = "$ " + actual_profit.toFixed(2);
-                  document.getElementById("dynamic_profit_margin").innerText = profit_margin.toFixed(2) + "%";
+                  document.getElementById("dynamic_profit_margin").innerText = profit_margin.toFixed(2) + " %";
               }}
 
               window.onload = updateCalculations;
@@ -1745,13 +1834,15 @@ def margins():
               <h2>Set Margins & Pricing Adjustments</h2>
               <form method="POST">
                 <h3>Category Margins</h3>
-        """ + "".join([f"""
+                {"".join([
+                  f"""
                 <div class="margin-row">
                   <label for="{cat.replace(' ', '_')}_margin">{cat} Margin (%):</label>
                   <input type="range" style="width:200px;" id="{cat.replace(' ', '_')}_margin" name="{cat}_margin" min="0" max="100" step="1" value="{cp.get(cat + '_margin', 0)}" oninput="updateOutput('{cat.replace(' ', '_')}_margin', '{cat.replace(' ', '_')}_output')">
                   <output id="{cat.replace(' ', '_')}_output" style="margin-right:10px;"></output>
                 </div>
-                """ for cat in base_costs]) + f"""
+                  """ for cat in base_costs
+                ])}
                 <h3>Additional Pricing Adjustments</h3>
                 <div class="margin-row">
                   <label for="product_discount_pct">Product Discount (%):</label>
@@ -1797,7 +1888,7 @@ def margins():
                     <td id="dynamic_product_plus_installation">$ 0.00</td>
                     <td id="dynamic_total_cost">$ 0.00</td>
                     <td id="dynamic_actual_profit">$ 0.00</td>
-                    <td id="dynamic_profit_margin">0.00%</td>
+                    <td id="dynamic_profit_margin">0.00 %</td>
                   </tr>
                 </table>
                 <div class="btn-group">
@@ -1838,8 +1929,7 @@ def create_final_summary_csv():
 
     # Panels Summary
     writer.writerow(["Panels Summary"])
-    writer.writerow(
-        ["Total Panels", "Total Area (sq ft)", "Total Perimeter (ft)", "Total Vertical (ft)", "Total Horizontal (ft)"])
+    writer.writerow(["Total Panels", "Total Area (sq ft)", "Total Perimeter (ft)", "Total Vertical (ft)", "Total Horizontal (ft)"])
     swr_panels = cp.get("swr_total_quantity", 0)
     swr_area = cp.get("swr_total_area", 0)
     swr_perimeter = cp.get("swr_total_perimeter", 0)
@@ -1873,11 +1963,9 @@ def create_final_summary_csv():
     writer.writerow(["Materials Note:", cp.get("swr_note", "")])
     writer.writerow([])
 
-    # Detailed IGR Materials Itemized Costs (including lead times)
+    # Detailed IGR Materials Itemized Costs (with lead times)
     writer.writerow(["Detailed IGR Materials Itemized Costs"])
-    writer.writerow(
-        ["Category", "Selected Material", "Unit Cost", "Cost ($)", "Discount/Surcharge", "Final Cost ($)", "Min Lead",
-         "Max Lead"])
+    writer.writerow(["Category", "Selected Material", "Unit Cost", "Cost ($)", "Discount/Surcharge", "Final Cost ($)", "Min Lead", "Max Lead"])
     for item in cp.get("igr_itemized_costs", []):
         writer.writerow([
             item.get("Category", ""),
@@ -1892,7 +1980,7 @@ def create_final_summary_csv():
     writer.writerow(["IGR Materials Note:", cp.get("igr_note", "")])
     writer.writerow([])
 
-    # Margins and Pricing Adjustments
+    # Margins and Pricing Adjustments Summary
     writer.writerow(["Margins and Pricing Adjustments"])
     writer.writerow(["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"])
     for item in cp.get("final_summary", []):
@@ -1905,6 +1993,7 @@ def create_final_summary_csv():
     writer.writerow(["Grand Total with Margins:", cp.get("grand_total", 0)])
     writer.writerow([])
 
+    # Additional Pricing Adjustments
     writer.writerow(["Additional Pricing Adjustments"])
     writer.writerow(["Adjustment", "Percentage (%)", "Amount ($)"])
     writer.writerow(["Product Discount", cp.get("product_discount_pct", 0), cp.get("product_discount_amount", 0)])
@@ -1913,9 +2002,9 @@ def create_final_summary_csv():
     writer.writerow(["Sales Tax", cp.get("sales_tax_pct", 0), cp.get("sales_tax_amount", 0)])
     writer.writerow([])
 
+    # Product Pricing Details
     writer.writerow(["Product Pricing"])
-    writer.writerow(
-        ["Product Total ($)", "Product Total After Tax ($)", "Product + Installation ($)", "Total Sell Price ($)"])
+    writer.writerow(["Product Total ($)", "Product Total After Tax ($)", "Product + Installation ($)", "Total Sell Price ($)"])
     writer.writerow([
         cp.get("product_total", 0),
         cp.get("product_total_after_tax", 0),
@@ -1924,9 +2013,9 @@ def create_final_summary_csv():
     ])
     writer.writerow([])
 
+    # Final Analysis
     writer.writerow(["Final Analysis"])
-    writer.writerow(["Total Sell Price per SF", "Total Sell Price per Panel", "Total Cost ($)", "Actual Profit ($)",
-                     "Profit Margin (%)"])
+    writer.writerow(["Total Sell Price per SF", "Total Sell Price per Panel", "Total Cost ($)", "Actual Profit ($)", "Profit Margin (%)"])
     swr_total_area = cp.get("swr_total_area", 0)
     swr_total_quantity = cp.get("swr_total_quantity", 0)
     total_sell_price = cp.get("total_sell_price", 0)
@@ -1961,9 +2050,6 @@ def create_final_summary_csv():
     writer.writerow([])
 
     return output.getvalue()
-
-
-
 # ==================================================
 # EXCEL EXPORT (Detailed Final Export)
 # ==================================================
@@ -1973,6 +2059,8 @@ def create_final_export_excel(margins_dict=None):
     writer = pd.ExcelWriter(output, engine="xlsxwriter")
     workbook = writer.book
     ws = workbook.add_worksheet("Project Export")
+
+    # Basic Project Information
     ws.write("A1", "Customer Name:")
     ws.write("B1", cp.get("customer_name", "N/A"))
     ws.write("A2", "Project Name:")
@@ -1981,6 +2069,8 @@ def create_final_export_excel(margins_dict=None):
     ws.write("B3", cp.get("estimated_by", "N/A"))
     ws.write("A4", "Date:")
     ws.write("B4", datetime.datetime.now().strftime("%Y-%m-%d"))
+
+    # Combined Totals
     ws.write("D1", "Combined Totals")
     ws.write("D2", "Panels")
     ws.write("E2", cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0))
@@ -1992,6 +2082,8 @@ def create_final_export_excel(margins_dict=None):
     ws.write("E5", cp.get("swr_total_horizontal_ft", 0) + cp.get("igr_total_horizontal_ft", 0))
     ws.write("D6", "Vertical (ft)")
     ws.write("E6", cp.get("swr_total_vertical_ft", 0) + cp.get("igr_total_vertical_ft", 0))
+
+    # Detailed SWR Itemized Costs
     ws.write("G1", "Detailed SWR Itemized Costs")
     headers_detail = ["Category", "Selected Material", "Final Cost ($)"]
     for col, header in enumerate(headers_detail):
@@ -2005,6 +2097,8 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 0, "Materials Note:")
     ws.write(row, 1, cp.get("swr_note", ""))
     row += 2
+
+    # Detailed IGR Itemized Costs
     ws.write(row, 0, "Detailed IGR Itemized Costs")
     for col, header in enumerate(headers_detail):
         ws.write(row + 1, col, header)
@@ -2017,6 +2111,8 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 0, "IGR Materials Note:")
     ws.write(row, 1, cp.get("igr_note", ""))
     row += 2
+
+    # Notes from Other Sections
     ws.write(row, 0, "Fabrication Note:")
     ws.write(row, 1, cp.get("fabrication_note", ""))
     row += 1
@@ -2034,31 +2130,113 @@ def create_final_export_excel(margins_dict=None):
     row += 1
     ws.write(row, 0, "Sales Note:")
     ws.write(row, 1, cp.get("sales_note", ""))
-    # Add a blank row
     row += 2
+
+    # Lead Time Summary (weeks) – Side-by-Side Display
     ws.write(row, 0, "Lead Time Summary (weeks)")
     row += 1
-    ws.write(row, 0, "Minimum Lead Material:")
-    ws.write(row, 1, cp.get("min_lead_material", 0))
+    ws.write(row, 0, "Lead Material")
+    ws.write(row, 1, "Min:")
+    ws.write(row, 2, cp.get("min_lead_material", 0))
+    ws.write(row, 3, "Max:")
+    ws.write(row, 4, cp.get("max_lead_material", 0))
     row += 1
-    ws.write(row, 0, "Maximum Lead Material:")
-    ws.write(row, 1, cp.get("max_lead_material", 0))
+    ws.write(row, 0, "Lead Fabrication")
+    ws.write(row, 1, "Min:")
+    ws.write(row, 2, cp.get("min_lead_fabrication", 0))
+    ws.write(row, 3, "Max:")
+    ws.write(row, 4, cp.get("max_lead_fabrication", 0))
     row += 1
-    ws.write(row, 0, "Minimum Lead Fabrication:")
-    ws.write(row, 1, cp.get("min_lead_fabrication", 0))
+    ws.write(row, 0, "Total Lead")
+    ws.write(row, 1, "Min:")
+    ws.write(row, 2, cp.get("min_total_lead", 0))
+    ws.write(row, 3, "Max:")
+    ws.write(row, 4, cp.get("max_total_lead", 0))
+    row += 2
+
+    # Margins Summary Section
+    ws.write(row, 0, "Margins Summary")
     row += 1
-    ws.write(row, 0, "Maximum Lead Fabrication:")
-    ws.write(row, 1, cp.get("max_lead_fabrication", 0))
+    margins_headers = ["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"]
+    for col, header in enumerate(margins_headers):
+        ws.write(row, col, header)
     row += 1
-    ws.write(row, 0, "Minimum Total Lead:")
-    ws.write(row, 1, cp.get("min_total_lead", 0))
+    if cp.get("final_summary"):
+        for summary in cp["final_summary"]:
+            ws.write(row, 0, summary.get("Category", ""))
+            ws.write(row, 1, summary.get("Original Cost ($)", 0))
+            ws.write(row, 2, summary.get("Margin (%)", 0))
+            ws.write(row, 3, summary.get("Cost with Margin ($)", 0))
+            row += 1
+    row += 2
+
+    # Product Pricing Details Section
+    ws.write(row, 0, "Product Pricing Details")
     row += 1
-    ws.write(row, 0, "Maximum Total Lead:")
-    ws.write(row, 1, cp.get("max_total_lead", 0))
+    ws.write(row, 0, "Product Price per Unit:")
+    ws.write(row, 1, cp.get("product_price_unit", 0))
+    row += 1
+    ws.write(row, 0, "Product Price per SF:")
+    ws.write(row, 1, cp.get("product_price_sf", 0))
+    row += 1
+    ws.write(row, 0, "Pricing Area (SF):")
+    ws.write(row, 1, cp.get("pricing_area", 0))
+    row += 2
+
+    # Additional Pricing Adjustments Section
+    ws.write(row, 0, "Additional Pricing Adjustments")
+    row += 1
+    ws.write(row, 0, "Product Discount (%)")
+    ws.write(row, 1, cp.get("product_discount_pct", 0))
+    ws.write(row, 2, "Product Discount ($)")
+    ws.write(row, 3, cp.get("product_discount_dollar", 0))
+    row += 1
+    ws.write(row, 0, "Finders Fee (%)")
+    ws.write(row, 1, cp.get("finders_fee_pct", 0))
+    ws.write(row, 2, "Finders Fee ($)")
+    ws.write(row, 3, cp.get("finders_fee_dollar", 0))
+    row += 1
+    ws.write(row, 0, "Sales Commission (%)")
+    ws.write(row, 1, cp.get("sales_commission_pct", 0))
+    ws.write(row, 2, "Sales Commission ($)")
+    ws.write(row, 3, cp.get("sales_commission_dollar", 0))
+    row += 1
+    ws.write(row, 0, "Sales Tax (%)")
+    ws.write(row, 1, cp.get("sales_tax_pct", 0))
+    ws.write(row, 2, "Sales Tax ($)")
+    ws.write(row, 3, cp.get("sales_tax_dollar", 0))
+    row += 2
+
+    # Final Pricing Summary Section
+    ws.write(row, 0, "Final Pricing Summary")
+    row += 1
+    ws.write(row, 0, "Product Total (after adjustments)")
+    ws.write(row, 1, cp.get("product_total", 0))
+    row += 1
+    ws.write(row, 0, "Product + Installation")
+    ws.write(row, 1, cp.get("product_plus_installation", 0))
+    row += 1
+    ws.write(row, 0, "Total Sell Price")
+    ws.write(row, 1, cp.get("total_sell_price", 0))
+    row += 1
+    ws.write(row, 0, "Total Sell Price per SF")
+    ws.write(row, 1, cp.get("total_sell_price_per_sf", 0))
+    row += 1
+    ws.write(row, 0, "Total Sell Price per Panel")
+    ws.write(row, 1, cp.get("total_sell_price_per_panel", 0))
+    row += 1
+    ws.write(row, 0, "Total Cost (pre-margins)")
+    ws.write(row, 1, cp.get("total_cost", 0))
+    row += 1
+    ws.write(row, 0, "Actual Profit ($)")
+    ws.write(row, 1, cp.get("actual_profit", 0))
+    row += 1
+    ws.write(row, 0, "Profit Margin (%)")
+    ws.write(row, 1, cp.get("profit_margin", 0))
+
     writer.close()
     output.seek(0)
     return output
-
 
 # ==================================================
 # DOWNLOAD FINAL EXPORT (Excel) ROUTE
