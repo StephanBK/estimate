@@ -265,7 +265,7 @@ def summary():
     cp['igr_total_quantity'] = igr_quantity
     save_current_project(cp)
     next_button = '<button type="button" class="btn" onclick="window.location.href=\'/materials\'">Next: SWR Materials</button>'
-    btn_html = '<button type="button" class="btn" onclick="window.location.href=\'/\'">Start New Project</button>' + next_button
+    btn_html = '<button type="button" class="btn" onclick="window.location.href=\'/new_project\'">Start New Project</button>' + next_button
     summary_html = f"""
     <html>
       <head>
@@ -1739,7 +1739,7 @@ def margins():
                   <button type="button" class="btn" onclick="window.location.href='/other_costs'">Back to Additional Costs</button>
                 </div>
                 <div class="btn-right">
-                  <button type="button" class="btn" onclick="window.location.href='/'">Start New Project</button>
+                  <button type="button" class="btn" onclick="window.location.href='/new_project'">Start New Project</button>
                 </div>
               </div>
               <div style="margin-top:10px;">
@@ -2246,6 +2246,10 @@ def download_final_export():
     excel_file = create_final_export_excel()
     return send_file(excel_file, attachment_filename="Project_Cost_Summary.xlsx", as_attachment=True)
 
+@app.route('/new_project')
+def new_project():
+    session.clear()  # This clears all project data from the session
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
     with app.app_context():
