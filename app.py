@@ -229,8 +229,15 @@ def summary():
     except Exception as e:
         return f"<h2 style='color: red;'>Error reading the file: {e}</h2>"
     if "Type" in df.columns:
-        df_swr = df[df["Type"].str.upper() == "SWR"]
-        df_igr = df[df["Type"].str.upper() == "IGR"]
+        type_col = "Type"
+    elif "Type(IGR/SWR)" in df.columns:
+        type_col = "Type(IGR/SWR)"
+    else:
+        type_col = None
+
+    if type_col:
+        df_swr = df[df[type_col].str.upper() == "SWR"]
+        df_igr = df[df[type_col].str.upper() == "IGR"]
     else:
         df_swr = df
         df_igr = pd.DataFrame()
@@ -328,7 +335,9 @@ def materials_page():
         materials_screws = Material.query.filter_by(category=18).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
+
     if request.method == 'POST':
+        # Process yield values
         try:
             cp['yield_cat15'] = float(request.form.get('yield_cat15', 0.97))
         except:
@@ -365,11 +374,8 @@ def materials_page():
             cp['yield_cat10'] = float(request.form.get('yield_cat10', 0.91))
         except:
             cp['yield_cat10'] = 0.91
-        try:
-            cp['yield_cat17'] = float(request.form.get('yield_cat17', 0.91))
-        except:
-            cp['yield_cat17'] = 0.91
 
+        # Process material selections
         cp["material_glass"] = request.form.get('material_glass')
         cp["material_aluminum"] = request.form.get('material_aluminum')
         cp["retainer_option"] = request.form.get('retainer_option')
@@ -386,12 +392,11 @@ def materials_page():
         cp["material_glass_protection"] = request.form.get('material_glass_protection')
         cp["retainer_attachment_option"] = request.form.get('retainer_attachment_option')
         cp["material_tape"] = request.form.get('material_tape')
-        cp["material_head_retainers"] = request.form.get('material_head_retainers')
-        cp["screws_option"] = request.form.get('screws_option')
-        cp["material_screws"] = request.form.get('material_screws')
+        # Duplicate Head Retainer fields have been removed—only one set (via retainer_option and material_retainer) is used.
         cp["swr_note"] = request.form.get("swr_note", "")
         save_current_project(cp)
 
+        # Retrieve the selected material objects
         mat_glass = Material.query.get(cp.get("material_glass")) if cp.get("material_glass") else None
         mat_aluminum = Material.query.get(cp.get("material_aluminum")) if cp.get("material_aluminum") else None
         mat_retainer = Material.query.get(cp.get("material_retainer")) if cp.get("material_retainer") else None
@@ -403,15 +408,16 @@ def materials_page():
         mat_foam_baffle_bottom = Material.query.get(cp.get("material_foam_baffle_bottom")) if cp.get("material_foam_baffle_bottom") else None
         mat_glass_protection = Material.query.get(cp.get("material_glass_protection")) if cp.get("material_glass_protection") else None
         mat_tape = Material.query.get(cp.get("material_tape")) if cp.get("material_tape") else None
-        mat_head_retainers = Material.query.get(cp.get("material_head_retainers")) if cp.get("material_head_retainers") else None
         mat_screws = Material.query.get(cp.get("material_screws")) if cp.get("material_screws") else None
 
+        # Use the previously computed totals (set in the summary page)
         total_area = cp.get('swr_total_area', 0)
         total_perimeter = cp.get('swr_total_perimeter', 0)
         total_vertical = cp.get('swr_total_vertical_ft', 0)
         total_horizontal = cp.get('swr_total_horizontal_ft', 0)
         total_quantity = cp.get('swr_total_quantity', 0)
 
+        # Compute costs
         cost_glass = (total_area * mat_glass.yield_cost) / cp['yield_cat15'] if mat_glass else 0
         cost_aluminum = (total_perimeter * mat_aluminum.yield_cost) / cp['yield_aluminum'] if mat_aluminum else 0
         if cp.get("retainer_option") == "head_retainer":
@@ -441,7 +447,6 @@ def materials_page():
                 cost_tape = 0
         else:
             cost_tape = 0
-        cost_head_retainers = ((total_horizontal / 2) * mat_head_retainers.yield_cost) / cp['yield_cat17'] if mat_head_retainers else 0
         if cp.get("screws_option") == "head_retainer":
             cost_screws = (0.5 * total_horizontal * 4 * (mat_screws.yield_cost if mat_screws else 0))
         elif cp.get("screws_option") == "head_and_sill":
@@ -451,9 +456,10 @@ def materials_page():
 
         total_material_cost = (cost_glass + cost_aluminum + cost_retainer + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle_top + cost_foam_baffle_bottom +
-                               cost_glass_protection + cost_tape + cost_head_retainers + cost_screws)
+                               cost_glass_protection + cost_tape + cost_screws)
         cp['material_total_cost'] = total_material_cost
 
+        # Build a full materials list (restoring all categories)
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
@@ -553,72 +559,9 @@ def materials_page():
                 "Cost ($)": cost_screws
             },
         ]
-        # Process each SWR material item:
-        for item in materials_list:
-            discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
-            try:
-                discount_value = float((request.form.get(discount_key) or "").strip()) if request.form.get(discount_key) else cp.get(discount_key, 0)
-            except:
-                discount_value = 0
-            cp[discount_key] = discount_value
-            item["Discount/Surcharge"] = discount_value
-            item["Final Cost"] = item["Cost ($)"] + discount_value
-
-        total_final_cost = sum(item["Final Cost"] for item in materials_list)
-        # Store the SWR itemized costs in the session for later use (e.g., in CSV export)
         cp["itemized_costs"] = materials_list
         save_current_project(cp)
-        # --- Begin Lead Time Calculations ---
-        selected_keys = [
-            "material_glass", "material_aluminum", "material_glazing",
-            "material_gaskets", "material_corner_keys", "material_dual_lock",
-            "material_foam_baffle", "material_foam_baffle_bottom",
-            "material_glass_protection", "material_tape", "material_head_retainers",
-            "material_screws"
-        ]
-        selected_materials = []
-        for key in selected_keys:
-            mat_id = cp.get(key)
-            if mat_id:
-                material = Material.query.get(mat_id)
-                if material:
-                    selected_materials.append(material)
-
-        # Gather lead time values from the selected materials
-        min_leads = [mat.min_lead for mat in selected_materials if mat.min_lead is not None]
-        max_leads = [mat.max_lead for mat in selected_materials if mat.max_lead is not None]
-
-        if min_leads:
-            # Choose the worst-case minimum lead (i.e. the highest among the minimums)
-            min_lead_material = max(min_leads)
-        else:
-            min_lead_material = 0
-
-        if max_leads:
-            # Choose the worst-case maximum lead (i.e. the highest among the maximums)
-            max_lead_material = max(max_leads)
-        else:
-            max_lead_material = 0
-
-        # Calculate fabrication lead times based on the total number of panels
-        total_panels = cp.get("swr_total_quantity", 0) + cp.get("igr_total_quantity", 0)
-        min_lead_fabrication = 1 + (total_panels / (12 * 40))  # 1 week + fraction based on panel count
-        max_lead_fabrication = 1 + (total_panels / (6 * 40))  # 1 week + a larger fraction
-
-        # Total lead times are the sum of the material and fabrication lead times
-        min_total_lead = min_lead_material + min_lead_fabrication
-        max_total_lead = max_lead_material + max_lead_fabrication
-
-        # Store these values in the session
-        cp["min_lead_material"] = min_lead_material
-        cp["max_lead_material"] = max_lead_material
-        cp["min_lead_fabrication"] = min_lead_fabrication
-        cp["max_lead_fabrication"] = max_lead_fabrication
-        cp["min_total_lead"] = min_total_lead
-        cp["max_total_lead"] = max_total_lead
-        save_current_project(cp)
-        # --- End Lead Time Calculations ---
-        next_button = '<a href="/other_costs" class="btn">Next: Additional Costs</a>'
+        next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
         result_html = f"""
          <html>
            <head>
@@ -628,46 +571,45 @@ def materials_page():
            <body>
              <div class="container">
                <h2>SWR Material Cost Summary</h2>
-               <form method='POST'>
-               <table class='summary-table'>
-               <tr>{"".join(f"<th>{h}</th>" for h in ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead", "Discount/Surcharge", "Final Cost"])}</tr>
-        """
-        for item in materials_list:
-            discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
-            result_html += f"""
-               <tr>
-                 <td>{item['Category']}</td>
-                 <td>{item['Selected Material']}</td>
-                 <td>{item['Unit Cost']:.2f}</td>
-                 <td>{item['Calculation']}</td>
-                 <td class='cost'>{item['Cost ($)']:.2f}</td>
-                 <td>{(item['Final Cost'] / total_area if total_area > 0 else 0):.2f}</td>
-                 <td>{(item['Final Cost'] / total_final_cost * 100 if total_final_cost > 0 else 0):.2f}</td>
-                 <td>N/A</td>
-                 <td>N/A</td>
-                 <td>N/A</td>
-                 <td><input type='number' step='1' name='{discount_key}' value='{item['Discount/Surcharge']}' oninput='updateFinalCost(this)' /></td>
-                 <td class='final-cost'>{item['Final Cost']:.2f}</td>
-               </tr>
-            """
-        result_html += f"""
-               </table>
-               <div style='margin-top:10px;'><label for='swr_note'>Materials Note:</label><textarea id='swr_note' name='swr_note' rows='3' style='width:100%;'>{cp.get("swr_note", "")}</textarea></div>
-               <script>
-               function updateFinalCost(input) {{
-                   var row = input.closest("tr");
-                   var costCell = row.querySelector(".cost");
-                   var finalCostCell = row.querySelector(".final-cost");
-                   var discountValue = parseFloat(input.value) || 0;
-                   var costValue = parseFloat(costCell.innerText) || 0;
-                   var finalCost = costValue + discountValue;
-                   finalCostCell.innerText = finalCost.toFixed(2);
-               }}
-               </script>
+               <form method="POST">
+                 <table class="summary-table">
+                   <tr>{"".join(f"<th>{h}</th>" for h in ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "$ per SF", "% Total Cost", "Stock Level", "Min Lead", "Max Lead", "Discount/Surcharge", "Final Cost"])}</tr>
+                   {''.join(f"""
+                   <tr>
+                     <td>{item['Category']}</td>
+                     <td>{item['Selected Material']}</td>
+                     <td>{item['Unit Cost']:.2f}</td>
+                     <td>{item['Calculation']}</td>
+                     <td class="cost">{item['Cost ($)']:.2f}</td>
+                     <td>{(item['Cost ($)'] / total_area if total_area > 0 else 0):.2f}</td>
+                     <td>{(item['Cost ($)'] / total_material_cost * 100 if total_material_cost > 0 else 0):.2f}</td>
+                     <td>N/A</td>
+                     <td>N/A</td>
+                     <td>N/A</td>
+                     <td><input type="number" step="1" name="discount_{item["Category"].replace(" ", "_")}" value="0" oninput="updateFinalCost(this)" /></td>
+                     <td class="final-cost">{item['Cost ($)']:.2f}</td>
+                   </tr>
+                   """ for item in materials_list)}
+                 </table>
+                 <div style="margin-top:10px;">
+                   <label for="swr_note">Materials Note:</label>
+                   <textarea id="swr_note" name="swr_note" rows="3" style="width:100%;">{cp.get("swr_note", "")}</textarea>
+                 </div>
+                 <script>
+                   function updateFinalCost(input) {{
+                       var row = input.closest("tr");
+                       var costCell = row.querySelector(".cost");
+                       var finalCostCell = row.querySelector(".final-cost");
+                       var discountValue = parseFloat(input.value) || 0;
+                       var costValue = parseFloat(costCell.innerText) || 0;
+                       var finalCost = costValue + discountValue;
+                       finalCostCell.innerText = finalCost.toFixed(2);
+                   }}
+                 </script>
                </form>
                <div class="btn-group">
-                  <button type="button" class="btn" onclick="window.location.href='/materials'">Back: Edit Materials</button>
-                  {next_button}
+                 <button type="button" class="btn" onclick="window.location.href='/materials'">Back: Edit Materials</button>
+                 {next_button}
                </div>
              </div>
            </body>
@@ -675,6 +617,7 @@ def materials_page():
         """
         return result_html
     else:
+        # GET branch: Render the form without the duplicate Head Retainer fields.
         return f"""
     <html>
       <head>
@@ -825,32 +768,16 @@ def materials_page():
                      {generate_options(materials_tape, cp.get("material_tape"))}
                   </select>
                </div>
-               <div>
-                  <label for="yield_cat17">Head Retainers (Cat 17) Yield:</label>
-                  <input type="number" step="0.01" id="yield_cat17" name="yield_cat17" value="{cp.get('yield_cat17', '0.91')}" required>
-               </div>
-               <div>
-                  <label for="material_head_retainers">Select Head Retainers:</label>
-                  <select name="material_head_retainers" id="material_head_retainers" required>
-                     {generate_options(materials_head_retainers, cp.get("material_head_retainers"))}
-                  </select>
-               </div>
+               <!-- Duplicate Head Retainer fields have been removed here -->
                <div class="btn-group">
                   <button type="button" class="btn" onclick="window.location.href='/summary'">Back: Edit Summary</button>
                   <button type="submit" class="btn">Calculate SWR Material Costs</button>
-               </div>
-               <div style="margin-top:10px;">
-                 <label for="swr_note">Materials Note:</label>
-                 <textarea id="swr_note" name="swr_note" rows="3" style="width:100%;">{cp.get("swr_note", "")}</textarea>
                </div>
             </form>
          </div>
       </body>
     </html>
     """
-    return form_html
-
-
 # ==================================================
 # IGR MATERIALS PAGE (Material Selection)
 # ==================================================
@@ -1393,7 +1320,7 @@ def other_costs():
                   <label for="custom_hourly_rate">Custom Hourly Rate ($):</label>
                   <input type="number" step="0.01" id="custom_hourly_rate" name="custom_hourly_rate" value="{cp.get('custom_hourly_rate', '0')}">
                 </div>
-                <label for="hours_per_panel">Hours per Panel:</label>
+                <label for="hours_per_panel">Man Hours per Panel:</label>
                 <input type="number" step="0.01" id="hours_per_panel" name="hours_per_panel" value="{cp.get('hours_per_panel', '0')}" required>
                 <p><strong>Additional Installation Tasks:</strong></p>
                 <div>
@@ -1908,10 +1835,14 @@ def margins():
 @app.route('/download_final_summary', methods=['POST'])
 def download_final_summary():
     csv_data = create_final_summary_csv()
+    cp = get_current_project()  # Retrieve project details from the session
+    customer_name = cp.get("customer_name", "customer").replace(" ", "_")
+    project_name = cp.get("project_name", "project").replace(" ", "_")
+    filename = f"{project_name}_{customer_name}_estimate.csv"
     return Response(
         csv_data,
         mimetype="text/csv",
-        headers={"Content-disposition": "attachment; filename=final_cost_summary.csv"}
+        headers={"Content-disposition": f"attachment; filename={filename}"}
     )
 
 
