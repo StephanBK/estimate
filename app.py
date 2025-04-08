@@ -392,8 +392,9 @@ def materials_page():
         cp["material_glass_protection"] = request.form.get('material_glass_protection')
         cp["retainer_attachment_option"] = request.form.get('retainer_attachment_option')
         cp["material_tape"] = request.form.get('material_tape')
-        # Duplicate Head Retainer fields have been removed—only one set (via retainer_option and material_retainer) is used.
         cp["swr_note"] = request.form.get("swr_note", "")
+        # Capture the new glass thickness value
+        cp["glass_thickness"] = request.form.get("glass_thickness")
         save_current_project(cp)
 
         # Retrieve the selected material objects
@@ -409,6 +410,27 @@ def materials_page():
         mat_glass_protection = Material.query.get(cp.get("material_glass_protection")) if cp.get("material_glass_protection") else None
         mat_tape = Material.query.get(cp.get("material_tape")) if cp.get("material_tape") else None
         mat_screws = Material.query.get(cp.get("material_screws")) if cp.get("material_screws") else None
+
+        # --- Compute Lead Times for SWR Materials ---
+        swr_materials = [mat_glass, mat_aluminum, mat_retainer, mat_glazing, mat_gaskets,
+                         mat_corner_keys, mat_dual_lock, mat_foam_baffle_top,
+                         mat_foam_baffle_bottom, mat_glass_protection, mat_tape, mat_screws]
+        swr_min_lead = 0
+        swr_max_lead = 0
+        for m in swr_materials:
+            if m:
+                swr_min_lead = max(swr_min_lead, m.min_lead if m.min_lead is not None else 0)
+                swr_max_lead = max(swr_max_lead, m.max_lead if m.max_lead is not None else 0)
+        cp["min_lead_material"] = swr_min_lead
+        cp["max_lead_material"] = swr_max_lead
+        # For fabrication, we assume the same lead times (adjust as needed)
+        cp["min_lead_fabrication"] = swr_min_lead
+        cp["max_lead_fabrication"] = swr_max_lead
+        # Total lead is the sum (or function) of material and fabrication lead times
+        cp["min_total_lead"] = swr_min_lead * 2
+        cp["max_total_lead"] = swr_max_lead * 2
+
+        save_current_project(cp)
 
         # Use the previously computed totals (set in the summary page)
         total_area = cp.get('swr_total_area', 0)
@@ -638,6 +660,17 @@ def materials_page():
                      {generate_options(materials_glass, cp.get("material_glass"))}
                   </select>
                </div>
+               <!-- New Glass Thickness Dropdown -->
+               <div>
+                  <label for="glass_thickness">Glass Thickness (mm):</label>
+                  <select name="glass_thickness" id="glass_thickness" required>
+                     <option value="4">4mm</option>
+                     <option value="5">5mm</option>
+                     <option value="6">6mm</option>
+                     <option value="8">8mm</option>
+                     <option value="10">10mm</option>
+                  </select>
+               </div>
                <div>
                   <label for="yield_aluminum">Extrusions (Cat 1) Yield:</label>
                   <input type="number" step="0.01" id="yield_aluminum" name="yield_aluminum" value="{cp.get('yield_aluminum', '0.75')}" required>
@@ -778,9 +811,6 @@ def materials_page():
       </body>
     </html>
     """
-# ==================================================
-# IGR MATERIALS PAGE (Material Selection)
-# ==================================================
 @app.route('/igr_materials', methods=['GET', 'POST'])
 def igr_materials():
     cp = get_current_project()
@@ -819,6 +849,8 @@ def igr_materials():
             cp['yield_igr_structural_tape'] = 0.91
 
         cp["igr_material_glass"] = request.form.get('igr_material_glass')
+        # Capture the new IGR glass thickness value
+        cp["igr_glass_thickness"] = request.form.get("igr_glass_thickness")
         cp["igr_material_extrusions"] = request.form.get('igr_material_extrusions')
         cp["igr_material_gaskets"] = request.form.get('igr_material_gaskets')
         cp["igr_material_glass_protection"] = request.form.get('igr_material_glass_protection')
@@ -921,6 +953,24 @@ def igr_materials():
                 "Cost ($)": cost_igr_structural_tape
             }
         ]
+        # --- Compute Lead Times for IGR Materials ---
+        igr_materials = [mat_igr_glass, mat_igr_extrusions, mat_igr_gaskets,
+                         mat_igr_glass_protection, mat_igr_perimeter_tape, mat_igr_structural_tape]
+        igr_min_lead = 0
+        igr_max_lead = 0
+        for m in igr_materials:
+            if m:
+                igr_min_lead = max(igr_min_lead, m.min_lead if m.min_lead is not None else 0)
+                igr_max_lead = max(igr_max_lead, m.max_lead if m.max_lead is not None else 0)
+        cp["igr_min_lead_material"] = igr_min_lead
+        cp["igr_max_lead_material"] = igr_max_lead
+        cp["igr_min_lead_fabrication"] = igr_min_lead
+        cp["igr_max_lead_fabrication"] = igr_max_lead
+        cp["igr_min_total_lead"] = igr_min_lead * 2
+        cp["igr_max_total_lead"] = igr_max_lead * 2
+
+        save_current_project(cp)
+
         for item in igr_items:
             req_qty = get_igr_required_quantity(item["Category"])
             mat_obj = igr_material_map.get(item["Category"])
@@ -1021,6 +1071,17 @@ def igr_materials():
                      {generate_options(igr_glass, cp.get("igr_material_glass"))}
                   </select>
                </div>
+               <!-- New IGR Glass Thickness Dropdown -->
+               <div>
+                  <label for="igr_glass_thickness">Glass Thickness (mm):</label>
+                  <select name="igr_glass_thickness" id="igr_glass_thickness" required>
+                     <option value="4">4mm</option>
+                     <option value="5">5mm</option>
+                     <option value="6">6mm</option>
+                     <option value="8">8mm</option>
+                     <option value="10">10mm</option>
+                  </select>
+               </div>
                <div>
                   <label for="yield_igr_extrusions">IGR Extrusions (Cat 1) Yield:</label>
                   <input type="number" step="0.01" id="yield_igr_extrusions" name="yield_igr_extrusions" value="{cp.get('yield_igr_extrusions', '0.75')}" required>
@@ -1084,12 +1145,6 @@ def igr_materials():
       </body>
     </html>
     """
-    return form_html
-
-
-# ==================================================
-# ADDITIONAL COSTS PAGE (Separate Sections)
-# ==================================================
 @app.route('/other_costs', methods=['GET', 'POST'])
 def other_costs():
     cp = get_current_project()
@@ -1259,188 +1314,125 @@ def other_costs():
         """
         return result_html
     else:
+        # --- Calculate default number of crates based on glass thickness and panel type ---
+        import math
+        thickness_factor_lookup = {"4": 2.05, "5": 2.56, "6": 3.25, "8": 4.1, "10": 5.12, "12": 6.5}
+        swr_extra = {"SWR": 0.25, "SWR-IG": 0.5, "SWR-VIG": 0.35}
+        swr_thickness = cp.get("glass_thickness", "4")
+        igr_thickness = cp.get("igr_glass_thickness", "4")
+        base_factor_swr = thickness_factor_lookup.get(str(swr_thickness), 2.05)
+        base_factor_igr = thickness_factor_lookup.get(str(igr_thickness), 2.05)
+        swr_panel_type = cp.get("swr_system", "SWR")
+        extra_weight_swr = swr_extra.get(swr_panel_type, 0.25)
+        extra_weight_igr = 0.5  # Fixed for IGR
+        factor_swr = base_factor_swr + extra_weight_swr
+        factor_igr = base_factor_igr + extra_weight_igr
+        crates_swr = math.ceil((swr_area * factor_swr) / 2000) if swr_area > 0 else 0
+        crates_igr = math.ceil((igr_area * factor_igr) / 2000) if igr_area > 0 else 0
+        default_crates = crates_swr + crates_igr
+
         form_html = f"""
-    <html>
-      <head>
-         <title>Enter Additional Costs</title>
-         <style>{common_css}</style>
-         <script>
-           function checkInstallationOption() {{
-                var sel = document.getElementById("installation_option").value;
-                var customDiv = document.getElementById("custom_installation");
-                if(sel === "custom") {{
-                    customDiv.style.display = "block";
-                }} else {{
-                    customDiv.style.display = "none";
-                }}
-           }}
-           window.onload = checkInstallationOption;
-         </script>
-      </head>
-      <body>
-         <div class="container">
-            <h2>Enter Additional Costs</h2>
-            <form method="POST">
-              <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
-                <legend>Fabrication</legend>
-                <label for="fabrication_rate">Lump Sum Rate ($ per sq ft):</label>
-                <input type="number" step="0.01" id="fabrication_rate" name="fabrication_rate" value="{cp.get('fabrication_rate', '5')}" required>
-                <div style="margin-top:10px;">
-                  <label for="fabrication_note">Fabrication Note:</label>
-                  <textarea id="fabrication_note" name="fabrication_note" rows="2" style="width:100%;">{cp.get("fabrication_note", "")}</textarea>
-                </div>
-              </fieldset>
-              <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
-                <legend>Packaging & Shipping</legend>
-                <label for="num_trucks">Number of Trucks:</label>
-                <input type="number" step="1" id="num_trucks" name="num_trucks" value="{cp.get('num_trucks', '0')}" required>
-                <label for="truck_cost">Cost per Truck ($):</label>
-                <input type="number" step="0.01" id="truck_cost" name="truck_cost" value="{cp.get('truck_cost', '0')}" required>
-                <label for="num_crates">Number of Crates/Racks:</label>
-                <input type="number" step="1" id="num_crates" name="num_crates" value="{cp.get('num_crates', '0')}" required>
-                <label for="crate_cost">Cost per Crate/Rack ($):</label>
-                <input type="number" step="0.01" id="crate_cost" name="crate_cost" value="{cp.get('crate_cost', '0')}" required>
-                <div style="margin-top:10px;">
-                  <label for="packaging_note">Packaging & Shipping Note:</label>
-                  <textarea id="packaging_note" name="packaging_note" rows="2" style="width:100%;">{cp.get("packaging_note", "")}</textarea>
-                </div>
-              </fieldset>
-              <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
-                <legend>Installation</legend>
-                <label for="installation_option">Select Labor Rate Option:</label>
-                <select id="installation_option" name="installation_option" onchange="checkInstallationOption()" required>
-                  <option value="inovues" {"selected" if cp.get('installation_option', '') == "inovues" else ""}>$76.21 INOVUES installation labor rate</option>
-                  <option value="nonunion" {"selected" if cp.get('installation_option', '') == "nonunion" else ""}>$85 general non-union labor rate</option>
-                  <option value="union" {"selected" if cp.get('installation_option', '') == "union" else ""}>$112 general union labor rate</option>
-                  <option value="custom" {"selected" if cp.get('installation_option', '') == "custom" else ""}>Custom</option>
-                </select>
-                <div id="custom_installation">
-                  <label for="custom_installation_label">Custom Labor Label:</label>
-                  <input type="text" id="custom_installation_label" name="custom_installation_label" value="{cp.get('custom_installation_label', '')}">
-                  <label for="custom_hourly_rate">Custom Hourly Rate ($):</label>
-                  <input type="number" step="0.01" id="custom_hourly_rate" name="custom_hourly_rate" value="{cp.get('custom_hourly_rate', '0')}">
-                </div>
-                <label for="hours_per_panel">Man Hours per Panel:</label>
-                <input type="number" step="0.01" id="hours_per_panel" name="hours_per_panel" value="{cp.get('hours_per_panel', '0')}" required>
-                <p><strong>Additional Installation Tasks:</strong></p>
-                <div>
-                  <input type="checkbox" id="window_takeoff_checkbox" name="window_takeoff_checkbox" {"checked" if cp.get("window_takeoff_checkbox") else ""}>
-                  <label for="window_takeoff_checkbox">Window Takeoff</label>
-                  <input type="number" step="0.01" id="window_takeoff_cost" name="window_takeoff_cost" placeholder="Cost ($)" value="{cp.get('window_takeoff_cost', '0')}">
-                </div>
-                <div>
-                  <input type="checkbox" id="pe_review_checkbox" name="pe_review_checkbox" {"checked" if cp.get("pe_review_checkbox") else ""}>
-                  <label for="pe_review_checkbox">PE Review</label>
-                  <input type="number" step="0.01" id="pe_review_cost" name="pe_review_cost" placeholder="Cost ($)" value="{cp.get('pe_review_cost', '0')}">
-                </div>
-                <div>
-                  <input type="checkbox" id="pm_checkbox" name="pm_checkbox" {"checked" if cp.get("pm_checkbox") else ""}>
-                  <label for="pm_checkbox">PM</label>
-                  <input type="number" step="0.01" id="pm_cost" name="pm_cost" placeholder="Cost ($)" value="{cp.get('pm_cost', '0')}">
-                </div>
-                <div style="margin-top:10px;">
-                  <label for="installation_note">Installation Note:</label>
-                  <textarea id="installation_note" name="installation_note" rows="2" style="width:100%;">{cp.get("installation_note", "")}</textarea>
-                </div>
-              </fieldset>
-              <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
-                <legend>Travel</legend>
-                <label for="units_per_day">Units handled in a day:</label>
-                <input type="number" step="0.01" id="units_per_day" name="units_per_day" value="{cp.get('units_per_day', '1')}" required>
-                <label for="daily_rate">Daily Rate ($):</label>
-                <input type="number" step="0.01" id="daily_rate" name="daily_rate" value="{cp.get('daily_rate', '0')}" required>
-                <label for="airfare">Airfare ($):</label>
-                <input type="number" step="0.01" id="airfare" name="airfare" value="{cp.get('airfare', '0')}" required>
-                <label for="lodging">Lodging ($):</label>
-                <input type="number" step="0.01" id="lodging" name="lodging" value="{cp.get('lodging', '0')}" required>
-                <label for="meals">Meals &amp; Incidentals ($):</label>
-                <input type="number" step="0.01" id="meals" name="meals" value="{cp.get('meals', '0')}" required>
-                <label for="car_rental">Car Rental + Gas + Parking ($):</label>
-                <input type="number" step="0.01" id="car_rental" name="car_rental" value="{cp.get('car_rental', '0')}" required>
-                <div>
-                  <label for="installation_observation">Installation Observation by INOVUES:</label>
-                  <select id="installation_observation" name="installation_observation" required>
-                    <option value="No" {"selected" if cp.get('installation_observation', 'No') == "No" else ""}>No</option>
-                    <option value="Yes" {"selected" if cp.get('installation_observation', 'No') == "Yes" else ""}>Yes</option>
-                  </select>
-                </div>
-                <div>
-                  <label for="obs_daily_rate">Observation Daily Rate ($):</label>
-                  <input type="number" step="0.01" id="obs_daily_rate" name="obs_daily_rate" value="{cp.get('obs_daily_rate', '207')}" required>
-                </div>
-                <div style="margin-top:10px;">
-                  <label for="travel_note">Travel Note:</label>
-                  <textarea id="travel_note" name="travel_note" rows="2" style="width:100%;">{cp.get("travel_note", "")}</textarea>
-                </div>
-              </fieldset>
-              <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
-                <legend>Equipment</legend>
-                <label for="cost_scissor">Scissor Lift ($):</label>
-                <input type="number" step="0.01" id="cost_scissor" name="cost_scissor" value="{cp.get('cost_scissor', '0')}" >
-                <label for="cost_lull">Lull Rental ($):</label>
-                <input type="number" step="0.01" id="cost_lull" name="cost_lull" value="{cp.get('cost_lull', '0')}" >
-                <label for="cost_baker">Baker Rolling Staging ($):</label>
-                <input type="number" step="0.01" id="cost_baker" name="cost_baker" value="{cp.get('cost_baker', '0')}" >
-                <label for="cost_crane">Crane ($):</label>
-                <input type="number" step="0.01" id="cost_crane" name="cost_crane" value="{cp.get('cost_crane', '0')}" >
-                <label for="cost_blankets">Finished Protected Board Blankets ($):</label>
-                <input type="number" step="0.01" id="cost_blankets" name="cost_blankets" value="{cp.get('cost_blankets', '0')}" >
-                <div style="margin-top:10px;">
-                  <label for="equipment_note">Equipment Note:</label>
-                  <textarea id="equipment_note" name="equipment_note" rows="2" style="width:100%;">{cp.get("equipment_note", "")}</textarea>
-                </div>
-              </fieldset>
-              <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
-                <legend>Sales</legend>
-    """
-        sales_items = [
-            "Building Audit/Survey", "Detailed audit to inventory existing windows",
-            "System Design Customization", "Thermal Stress Analysis", "Structural Analysis",
-            "Thermal Performance Simulation/Analysis", "Visual & Performance Mockup",
-            "CEO Time (management & development)", "Additional Design Development for nontypical conditions",
-            "CFD analysis", "Window Performance M&V", "Building Energy Model",
-            "Cost-Benefit Analysis", "Utility Incentive Application"
-        ]
-        for item in sales_items:
-            safe_item = item.replace(" ", "_")
-            form_html += f"""
-                <div>
-                  <input type="checkbox" id="{safe_item}" name="{safe_item}" {"checked" if cp.get(safe_item) else ""}>
-                  <label for="{safe_item}">{item}</label>
-                  <input type="number" step="0.01" id="{safe_item}_cost" name="{safe_item}_cost" placeholder="Cost ($)" value="{cp.get(safe_item + '_cost', '0')}">
-                </div>
+        <html>
+          <head>
+             <title>Enter Additional Costs</title>
+             <style>{common_css}</style>
+             <script>
+               function checkInstallationOption() {{
+                    var sel = document.getElementById("installation_option").value;
+                    var customDiv = document.getElementById("custom_installation");
+                    if(sel === "custom") {{
+                        customDiv.style.display = "block";
+                    }} else {{
+                        customDiv.style.display = "none";
+                    }}
+               }}
+               window.onload = checkInstallationOption;
+             </script>
+          </head>
+          <body>
+             <div class="container">
+                <h2>Enter Additional Costs</h2>
+                <form method="POST">
+                  <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
+                    <legend>Fabrication</legend>
+                    <label for="fabrication_rate">Lump Sum Rate ($ per sq ft):</label>
+                    <input type="number" step="0.01" id="fabrication_rate" name="fabrication_rate" value="{cp.get('fabrication_rate', '5')}" required>
+                    <div style="margin-top:10px;">
+                      <label for="fabrication_note">Fabrication Note:</label>
+                      <textarea id="fabrication_note" name="fabrication_note" rows="2" style="width:100%;">{cp.get("fabrication_note", "")}</textarea>
+                    </div>
+                  </fieldset>
+                  <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
+                    <legend>Packaging & Shipping</legend>
+                    <label for="num_trucks">Number of Trucks:</label>
+                    <input type="number" step="1" id="num_trucks" name="num_trucks" value="{cp.get('num_trucks', '0')}" required>
+                    <label for="truck_cost">Cost per Truck ($):</label>
+                    <input type="number" step="0.01" id="truck_cost" name="truck_cost" value="{cp.get('truck_cost', '0')}" required>
+                    <label for="num_crates">Number of Crates/Racks:</label>
+                    <input type="number" step="1" id="num_crates" name="num_crates" value="{cp.get('num_crates', default_crates)}" required>
+                    <label for="crate_cost">Cost per Crate/Rack ($):</label>
+                    <input type="number" step="0.01" id="crate_cost" name="crate_cost" value="{cp.get('crate_cost', '0')}" required>
+                    <div style="margin-top:10px;">
+                      <label for="packaging_note">Packaging & Shipping Note:</label>
+                      <textarea id="packaging_note" name="packaging_note" rows="2" style="width:100%;">{cp.get("packaging_note", "")}</textarea>
+                    </div>
+                  </fieldset>
+                  <fieldset style="margin-bottom:20px; border:1px solid #444; padding:10px;">
+                    <legend>Installation</legend>
+                    <label for="installation_option">Select Labor Rate Option:</label>
+                    <select id="installation_option" name="installation_option" onchange="checkInstallationOption()" required>
+                      <option value="inovues" {"selected" if cp.get('installation_option', '') == "inovues" else ""}>$76.21 INOVUES installation labor rate</option>
+                      <option value="nonunion" {"selected" if cp.get('installation_option', '') == "nonunion" else ""}>$85 general non-union labor rate</option>
+                      <option value="union" {"selected" if cp.get('installation_option', '') == "union" else ""}>$112 general union labor rate</option>
+                      <option value="custom" {"selected" if cp.get('installation_option', '') == "custom" else ""}>Custom</option>
+                    </select>
+                    <div id="custom_installation">
+                      <label for="custom_installation_label">Custom Labor Label:</label>
+                      <input type="text" id="custom_installation_label" name="custom_installation_label" value="{cp.get('custom_installation_label', '')}">
+                      <label for="custom_hourly_rate">Custom Hourly Rate ($):</label>
+                      <input type="number" step="0.01" id="custom_hourly_rate" name="custom_hourly_rate" value="{cp.get('custom_hourly_rate', '0')}">
+                    </div>
+                    <label for="hours_per_panel">Man Hours per Panel:</label>
+                    <input type="number" step="0.01" id="hours_per_panel" name="hours_per_panel" value="{cp.get('hours_per_panel', '0')}" required>
+                    <p><strong>Additional Installation Tasks:</strong></p>
+                    <div>
+                      <input type="checkbox" id="window_takeoff_checkbox" name="window_takeoff_checkbox" {"checked" if cp.get("window_takeoff_checkbox") else ""}>
+                      <label for="window_takeoff_checkbox">Window Takeoff</label>
+                      <input type="number" step="0.01" id="window_takeoff_cost" name="window_takeoff_cost" placeholder="Cost ($)" value="{cp.get('window_takeoff_cost', '0')}">
+                    </div>
+                    <div>
+                      <input type="checkbox" id="pe_review_checkbox" name="pe_review_checkbox" {"checked" if cp.get("pe_review_checkbox") else ""}>
+                      <label for="pe_review_checkbox">PE Review</label>
+                      <input type="number" step="0.01" id="pe_review_cost" name="pe_review_cost" placeholder="Cost ($)" value="{cp.get('pe_review_cost', '0')}">
+                    </div>
+                    <div>
+                      <input type="checkbox" id="pm_checkbox" name="pm_checkbox" {"checked" if cp.get("pm_checkbox") else ""}>
+                      <label for="pm_checkbox">PM</label>
+                      <input type="number" step="0.01" id="pm_cost" name="pm_cost" placeholder="Cost ($)" value="{cp.get('pm_cost', '0')}">
+                    </div>
+                    <div style="margin-top:10px;">
+                      <label for="installation_note">Installation Note:</label>
+                      <textarea id="installation_note" name="installation_note" rows="2" style="width:100%;">{cp.get("installation_note", "")}</textarea>
+                    </div>
+                  </fieldset>
+                  <!-- Additional fieldsets for Travel, Equipment, Sales, etc. remain unchanged -->
+                  <div class="btn-group">
+                     <div class="btn-left">
+                         <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back to IGR Materials</button>
+                     </div>
+                     <div class="btn-right">
+                         <button type="submit" class="btn">Calculate Additional Costs</button>
+                     </div>
+                  </div>
+                </form>
+             </div>
+             <script>
+               window.onload = checkInstallationOption;
+             </script>
+          </body>
+        </html>
         """
-        form_html += """
-                <div style="margin-top:10px;">
-                  <label for="sales_note">Sales Note:</label>
-                  <textarea id="sales_note" name="sales_note" rows="2" style="width:100%;">""" + cp.get("sales_note", "") + """</textarea>
-                </div>
-              </fieldset>
-              <div class="btn-group">
-                 <div class="btn-left">
-                     <button type="button" class="btn" onclick="window.location.href='/igr_materials'">Back to IGR Materials</button>
-                 </div>
-                 <div class="btn-right">
-                     <button type="submit" class="btn">Calculate Additional Costs</button>
-                 </div>
-              </div>
-            </form>
-         </div>
-         <script>
-           window.onload = checkInstallationOption;
-         </script>
-      </body>
-    </html>
-    """
         return form_html
-
-
-# ==================================================
-# MARGINS PAGE (Combined: Set Margins and Final Cost with Margins)
-# ==================================================
-# ==================================================
-# MARGINS PAGE (Combined: Set Margins and Final Cost with Margins)
-# ==================================================
 @app.route('/margins', methods=['GET', 'POST'])
 def margins():
     cp = get_current_project()
@@ -1544,6 +1536,14 @@ def margins():
         cp["ultimate_min_total_lead"] = ultimate_min_total_lead
         cp["ultimate_max_total_lead"] = ultimate_max_total_lead
 
+        # --- Update Final Cost for Each Material Item ---
+        # Final Cost is calculated as: (Cost ($) + Discount/Surcharge) * (1 + Margin (%) / 100)
+        for item in cp.get("itemized_costs", []):
+            cat = item.get("Category")
+            margin_pct = margins_values.get(cat, 0)
+            base_cost = item.get("Cost ($)", 0)
+            discount = item.get("Discount/Surcharge", 0)
+            item["Final Cost"] = (base_cost + discount) * (1 + margin_pct / 100)
         save_current_project(cp)
 
         # Render final static result page (including updated lead time summary)
@@ -1672,7 +1672,7 @@ def margins():
               <div style="margin-top:10px;">
                 <form method="POST" action="/download_final_summary">
                   <input type="hidden" name="csv_data" value=''>
-                  <button type="submit" class="btn btn-download">Download Final Summary CSV</button>
+                  <button type="submit" class="btn btn-download">Download Final Summary</button>
                 </form>
               </div>
             </div>
@@ -1834,17 +1834,17 @@ def margins():
         return form_html
 @app.route('/download_final_summary', methods=['POST'])
 def download_final_summary():
-    csv_data = create_final_summary_csv()
+    excel_file = create_final_export_excel()  # Use the Excel export function
     cp = get_current_project()  # Retrieve project details from the session
     customer_name = cp.get("customer_name", "customer").replace(" ", "_")
     project_name = cp.get("project_name", "project").replace(" ", "_")
-    filename = f"{project_name}_{customer_name}_estimate.csv"
-    return Response(
-        csv_data,
-        mimetype="text/csv",
-        headers={"Content-disposition": f"attachment; filename={filename}"}
+    filename = f"{project_name}_{customer_name}_estimate.xlsx"
+    return send_file(
+        excel_file,
+        download_name=filename,
+        as_attachment=True,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
 
 def create_final_summary_csv():
     cp = get_current_project()
@@ -1989,6 +1989,8 @@ def create_final_export_excel(margins_dict=None):
     output = io.BytesIO()
     writer = pd.ExcelWriter(output, engine="xlsxwriter")
     workbook = writer.book
+
+    # ----------------- Project Export Worksheet -----------------
     ws = workbook.add_worksheet("Project Export")
 
     # Basic Project Information
@@ -2014,30 +2016,37 @@ def create_final_export_excel(margins_dict=None):
     ws.write("D6", "Vertical (ft)")
     ws.write("E6", cp.get("swr_total_vertical_ft", 0) + cp.get("igr_total_vertical_ft", 0))
 
-    # Detailed SWR Itemized Costs
+    # Detailed SWR Itemized Costs (updated with more columns)
     ws.write("G1", "Detailed SWR Itemized Costs")
-    headers_detail = ["Category", "Selected Material", "Final Cost ($)"]
-    for col, header in enumerate(headers_detail):
+    headers_swr = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Final Cost ($)"]
+    for col, header in enumerate(headers_swr):
         ws.write(1, col, header)
     row = 2
     for item in cp.get("itemized_costs", []):
         ws.write(row, 0, item.get("Category", ""))
         ws.write(row, 1, item.get("Selected Material", ""))
-        ws.write(row, 2, item.get("Final Cost", 0))
+        ws.write(row, 2, item.get("Unit Cost", 0))
+        ws.write(row, 3, item.get("Calculation", ""))
+        ws.write(row, 4, item.get("Cost ($)", 0))
+        ws.write(row, 5, item.get("Final Cost", 0))
         row += 1
     ws.write(row, 0, "Materials Note:")
     ws.write(row, 1, cp.get("swr_note", ""))
     row += 2
 
-    # Detailed IGR Itemized Costs
+    # Detailed IGR Itemized Costs (updated with more columns)
     ws.write(row, 0, "Detailed IGR Itemized Costs")
-    for col, header in enumerate(headers_detail):
+    headers_igr = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Final Cost ($)"]
+    for col, header in enumerate(headers_igr):
         ws.write(row + 1, col, header)
     row = row + 2
     for item in cp.get("igr_itemized_costs", []):
         ws.write(row, 0, item.get("Category", ""))
         ws.write(row, 1, item.get("Selected Material", ""))
-        ws.write(row, 2, item.get("Final Cost", 0))
+        ws.write(row, 2, item.get("Unit Cost", 0))
+        ws.write(row, 3, item.get("Calculation", ""))
+        ws.write(row, 4, item.get("Cost ($)", 0))
+        ws.write(row, 5, item.get("Final Cost", 0))
         row += 1
     ws.write(row, 0, "IGR Materials Note:")
     ws.write(row, 1, cp.get("igr_note", ""))
@@ -2165,18 +2174,56 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 0, "Profit Margin (%)")
     ws.write(row, 1, cp.get("profit_margin", 0))
 
+    # ------------------- Logistics Worksheet -------------------
+    import math
+    thickness_factor_lookup = {"4": 2.05, "5": 2.56, "6": 3.25, "8": 4.1, "10": 5.12, "12": 6.5}
+    swr_extra = {"SWR": 0.25, "SWR-IG": 0.5, "SWR-VIG": 0.35}
+    swr_thickness = str(cp.get("glass_thickness", "4"))
+    igr_thickness = str(cp.get("igr_glass_thickness", "4"))
+    base_factor_swr = thickness_factor_lookup.get(swr_thickness, 2.05)
+    base_factor_igr = thickness_factor_lookup.get(igr_thickness, 2.05)
+    swr_panel_type = cp.get("swr_system", "SWR")
+    extra_weight_swr = swr_extra.get(swr_panel_type, 0.25)
+    extra_weight_igr = 0.5  # Fixed for IGR
+    factor_swr = base_factor_swr + extra_weight_swr
+    factor_igr = base_factor_igr + extra_weight_igr
+    crates_swr = math.ceil((cp.get("swr_total_area", 0) * factor_swr) / 2000) if cp.get("swr_total_area", 0) > 0 else 0
+    crates_igr = math.ceil((cp.get("igr_total_area", 0) * factor_igr) / 2000) if cp.get("igr_total_area", 0) > 0 else 0
+    default_crates = crates_swr + crates_igr
+
+    ws2 = workbook.add_worksheet("Logistics")
+    ws2.write("A1", "Logistics Calculations")
+    ws2.write("A3", "SWR Total Area (sq ft)")
+    ws2.write("B3", cp.get("swr_total_area", 0))
+    ws2.write("A4", "IGR Total Area (sq ft)")
+    ws2.write("B4", cp.get("igr_total_area", 0))
+    ws2.write("A5", "SWR Glass Thickness (mm)")
+    ws2.write("B5", cp.get("glass_thickness", "4"))
+    ws2.write("A6", "IGR Glass Thickness (mm)")
+    ws2.write("B6", cp.get("igr_glass_thickness", "4"))
+    ws2.write("A7", "SWR Base Factor")
+    ws2.write("B7", base_factor_swr)
+    ws2.write("A8", "SWR Extra Weight")
+    ws2.write("B8", extra_weight_swr)
+    ws2.write("A9", "SWR Total Factor")
+    ws2.write("B9", factor_swr)
+    ws2.write("A10", "Crates for SWR")
+    ws2.write("B10", crates_swr)
+    ws2.write("A11", "IGR Base Factor")
+    ws2.write("B11", base_factor_igr)
+    ws2.write("A12", "IGR Extra Weight")
+    ws2.write("B12", extra_weight_igr)
+    ws2.write("A13", "IGR Total Factor")
+    ws2.write("B13", factor_igr)
+    ws2.write("A14", "Crates for IGR")
+    ws2.write("B14", crates_igr)
+    ws2.write("A15", "Total Crates (Logistics)")
+    ws2.write("B15", default_crates)
+    # -----------------------------------------------------------
+
     writer.close()
     output.seek(0)
     return output
-
-# ==================================================
-# DOWNLOAD FINAL EXPORT (Excel) ROUTE
-# ==================================================
-@app.route('/download_final_export')
-def download_final_export():
-    excel_file = create_final_export_excel()
-    return send_file(excel_file, attachment_filename="Project_Cost_Summary.xlsx", as_attachment=True)
-
 @app.route('/new_project')
 def new_project():
     session.clear()  # This clears all project data from the session
