@@ -333,6 +333,8 @@ def materials_page():
         materials_tape = Material.query.filter_by(category=10).all()
         materials_head_retainers = Material.query.filter_by(category=17).all()
         materials_screws = Material.query.filter_by(category=18).all()
+        # Added for Setting Block (Category 16)
+        materials_setting_block = Material.query.filter_by(category=16).all()
     except Exception as e:
         return f"<h2 style='color: red;'>Error fetching materials: {e}</h2>"
 
@@ -374,6 +376,11 @@ def materials_page():
             cp['yield_cat10'] = float(request.form.get('yield_cat10', 0.91))
         except:
             cp['yield_cat10'] = 0.91
+        # --- Added for Setting Block ---
+        try:
+            cp['yield_cat16'] = float(request.form.get('yield_cat16', 1.0))
+        except:
+            cp['yield_cat16'] = 1.0
 
         # Process material selections
         cp["material_glass"] = request.form.get('material_glass')
@@ -395,6 +402,8 @@ def materials_page():
         cp["swr_note"] = request.form.get("swr_note", "")
         # Capture the new glass thickness value
         cp["glass_thickness"] = request.form.get("glass_thickness")
+        # --- Added for Setting Block ---
+        cp["material_setting_block"] = request.form.get("material_setting_block")
         save_current_project(cp)
 
         # Retrieve the selected material objects
@@ -410,6 +419,8 @@ def materials_page():
         mat_glass_protection = Material.query.get(cp.get("material_glass_protection")) if cp.get("material_glass_protection") else None
         mat_tape = Material.query.get(cp.get("material_tape")) if cp.get("material_tape") else None
         mat_screws = Material.query.get(cp.get("material_screws")) if cp.get("material_screws") else None
+        # --- Retrieve Setting Block Material ---
+        mat_setting_block = Material.query.get(cp.get("material_setting_block")) if cp.get("material_setting_block") else None
 
         # --- Compute Lead Times for SWR Materials ---
         swr_materials = [mat_glass, mat_aluminum, mat_retainer, mat_glazing, mat_gaskets,
@@ -475,10 +486,13 @@ def materials_page():
             cost_screws = (total_horizontal * 4 * (mat_screws.yield_cost if mat_screws else 0))
         else:
             cost_screws = 0
+        # --- Calculate Cost for Setting Block ---
+        total_setting_blocks = total_quantity * 2  # 2 setting blocks per panel
+        cost_setting_block = (total_setting_blocks * mat_setting_block.yield_cost) / cp['yield_cat16'] if mat_setting_block else 0
 
         total_material_cost = (cost_glass + cost_aluminum + cost_retainer + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle_top + cost_foam_baffle_bottom +
-                               cost_glass_protection + cost_tape + cost_screws)
+                               cost_glass_protection + cost_tape + cost_screws + cost_setting_block)
         cp['material_total_cost'] = total_material_cost
 
         # Build a full materials list (restoring all categories)
@@ -579,6 +593,14 @@ def materials_page():
                                 else (f"Head + Sill: Total Horizontal {total_horizontal:.2f} × 4 × Yield Cost"
                                       if cp.get("screws_option") == "head_and_sill" else "No Screws")),
                 "Cost ($)": cost_screws
+            },
+            # --- Added Setting Block Item ---
+            {
+                "Category": "Setting Block (Cat 16)",
+                "Selected Material": mat_setting_block.nickname if mat_setting_block else "N/A",
+                "Unit Cost": mat_setting_block.yield_cost if mat_setting_block else 0,
+                "Calculation": f"Total Panels {total_quantity:.2f} × 2 × Yield Cost / {cp['yield_cat16']}",
+                "Cost ($)": cost_setting_block
             },
         ]
         cp["itemized_costs"] = materials_list
@@ -799,6 +821,17 @@ def materials_page():
                   <label for="material_tape">Select Tape Material:</label>
                   <select name="material_tape" id="material_tape" required>
                      {generate_options(materials_tape, cp.get("material_tape"))}
+                  </select>
+               </div>
+               <!-- Added Setting Block Fields -->
+               <div>
+                  <label for="yield_cat16">Setting Block (Cat 16) Yield:</label>
+                  <input type="number" step="0.01" id="yield_cat16" name="yield_cat16" value="{cp.get('yield_cat16', '1.0')}" required>
+               </div>
+               <div>
+                  <label for="material_setting_block">Select Setting Block:</label>
+                  <select name="material_setting_block" id="material_setting_block" required>
+                     {generate_options(materials_setting_block, cp.get("material_setting_block"))}
                   </select>
                </div>
                <!-- Duplicate Head Retainer fields have been removed here -->
