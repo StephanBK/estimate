@@ -414,15 +414,19 @@ def materials_page():
         mat_gaskets = Material.query.get(cp.get("material_gaskets")) if cp.get("material_gaskets") else None
         mat_corner_keys = Material.query.get(cp.get("material_corner_keys")) if cp.get("material_corner_keys") else None
         mat_dual_lock = Material.query.get(cp.get("material_dual_lock")) if cp.get("material_dual_lock") else None
-        mat_foam_baffle_top = Material.query.get(cp.get("material_foam_baffle")) if cp.get("material_foam_baffle") else None
-        mat_foam_baffle_bottom = Material.query.get(cp.get("material_foam_baffle_bottom")) if cp.get("material_foam_baffle_bottom") else None
-        mat_glass_protection = Material.query.get(cp.get("material_glass_protection")) if cp.get("material_glass_protection") else None
+        mat_foam_baffle_top = Material.query.get(cp.get("material_foam_baffle")) if cp.get(
+            "material_foam_baffle") else None
+        mat_foam_baffle_bottom = Material.query.get(cp.get("material_foam_baffle_bottom")) if cp.get(
+            "material_foam_baffle_bottom") else None
+        mat_glass_protection = Material.query.get(cp.get("material_glass_protection")) if cp.get(
+            "material_glass_protection") else None
         mat_tape = Material.query.get(cp.get("material_tape")) if cp.get("material_tape") else None
         mat_screws = Material.query.get(cp.get("material_screws")) if cp.get("material_screws") else None
         # --- Retrieve Setting Block Material ---
-        mat_setting_block = Material.query.get(cp.get("material_setting_block")) if cp.get("material_setting_block") else None
+        mat_setting_block = Material.query.get(cp.get("material_setting_block")) if cp.get(
+            "material_setting_block") else None
 
-        # --- Compute Lead Times for SWR Materials ---
+        # --- Compute Lead Times for SWR Materials (unchanged) ---
         swr_materials = [mat_glass, mat_aluminum, mat_retainer, mat_glazing, mat_gaskets,
                          mat_corner_keys, mat_dual_lock, mat_foam_baffle_top,
                          mat_foam_baffle_bottom, mat_glass_protection, mat_tape, mat_screws]
@@ -434,164 +438,414 @@ def materials_page():
                 swr_max_lead = max(swr_max_lead, m.max_lead if m.max_lead is not None else 0)
         cp["min_lead_material"] = swr_min_lead
         cp["max_lead_material"] = swr_max_lead
-        # For fabrication, we assume the same lead times (adjust as needed)
         cp["min_lead_fabrication"] = swr_min_lead
         cp["max_lead_fabrication"] = swr_max_lead
-        # Total lead is the sum (or function) of material and fabrication lead times
         cp["min_total_lead"] = swr_min_lead * 2
         cp["max_total_lead"] = swr_max_lead * 2
 
         save_current_project(cp)
 
-        # Use the previously computed totals (set in the summary page)
+        # Use the previously computed totals (from CSV summary)
         total_area = cp.get('swr_total_area', 0)
         total_perimeter = cp.get('swr_total_perimeter', 0)
         total_vertical = cp.get('swr_total_vertical_ft', 0)
         total_horizontal = cp.get('swr_total_horizontal_ft', 0)
         total_quantity = cp.get('swr_total_quantity', 0)
 
-        # Compute costs
-        cost_glass = (total_area * mat_glass.yield_cost) / cp['yield_cat15'] if mat_glass else 0
-        cost_aluminum = (total_perimeter * mat_aluminum.yield_cost) / cp['yield_aluminum'] if mat_aluminum else 0
+        # --- Updated Cost Calculations with MOQ Logic ---
+        # Glass (Cat 15) - using total_area
+        if mat_glass:
+            required_glass = total_area
+            if required_glass > mat_glass.quantity:
+                delta = required_glass - mat_glass.quantity
+                moq = mat_glass.moq if mat_glass.moq is not None else 0
+                if delta <= moq:
+                    cost_glass = mat_glass.moq_cost
+                    flag_glass = "MOQ applied"
+                else:
+                    cost_glass = (required_glass * mat_glass.yield_cost) / cp['yield_cat15']
+                    flag_glass = ""
+            else:
+                cost_glass = (required_glass * mat_glass.yield_cost) / cp['yield_cat15']
+                flag_glass = ""
+        else:
+            cost_glass = 0
+            flag_glass = ""
+
+        # Extrusions (Cat 1) - using total_perimeter
+        if mat_aluminum:
+            required_aluminum = total_perimeter
+            if required_aluminum > mat_aluminum.quantity:
+                delta = required_aluminum - mat_aluminum.quantity
+                moq = mat_aluminum.moq if mat_aluminum.moq is not None else 0
+                if delta <= moq:
+                    cost_aluminum = mat_aluminum.moq_cost
+                    flag_aluminum = "MOQ applied"
+                else:
+                    cost_aluminum = (required_aluminum * mat_aluminum.yield_cost) / cp['yield_aluminum']
+                    flag_aluminum = ""
+            else:
+                cost_aluminum = (required_aluminum * mat_aluminum.yield_cost) / cp['yield_aluminum']
+                flag_aluminum = ""
+        else:
+            cost_aluminum = 0
+            flag_aluminum = ""
+
+        # Retainer (Cat 17) - handling based on option
         if cp.get("retainer_option") == "head_retainer":
-            cost_retainer = (0.5 * total_horizontal * mat_retainer.yield_cost) / cp['yield_aluminum'] if mat_retainer else 0
+            if mat_retainer:
+                required_retainer = 0.5 * total_horizontal
+                if required_retainer > mat_retainer.quantity:
+                    delta = required_retainer - mat_retainer.quantity
+                    moq = mat_retainer.moq if mat_retainer.moq is not None else 0
+                    if delta <= moq:
+                        cost_retainer = mat_retainer.moq_cost
+                        flag_retainer = "MOQ applied"
+                    else:
+                        cost_retainer = (required_retainer * mat_retainer.yield_cost) / cp['yield_aluminum']
+                        flag_retainer = ""
+                else:
+                    cost_retainer = (required_retainer * mat_retainer.yield_cost) / cp['yield_aluminum']
+                    flag_retainer = ""
+            else:
+                cost_retainer = 0
+                flag_retainer = ""
         elif cp.get("retainer_option") == "head_and_sill":
-            cost_retainer = (total_horizontal * mat_retainer.yield_cost * cp['yield_aluminum']) if mat_retainer else 0
+            if mat_retainer:
+                required_retainer = total_horizontal
+                if required_retainer > mat_retainer.quantity:
+                    delta = required_retainer - mat_retainer.quantity
+                    moq = mat_retainer.moq if mat_retainer.moq is not None else 0
+                    if delta <= moq:
+                        cost_retainer = mat_retainer.moq_cost
+                        flag_retainer = "MOQ applied"
+                    else:
+                        cost_retainer = (required_retainer * mat_retainer.yield_cost * cp['yield_aluminum'])
+                        flag_retainer = ""
+                else:
+                    cost_retainer = (required_retainer * mat_retainer.yield_cost * cp['yield_aluminum'])
+                    flag_retainer = ""
+            else:
+                cost_retainer = 0
+                flag_retainer = ""
         else:
             cost_retainer = 0
-        cost_glazing = (total_perimeter * mat_glazing.yield_cost) / cp['yield_cat2'] if mat_glazing else 0
-        cost_gaskets = (total_vertical * mat_gaskets.yield_cost) / cp['yield_cat3'] if mat_gaskets else 0
-        cost_corner_keys = (total_quantity * 4 * mat_corner_keys.yield_cost) / cp['yield_cat4'] if mat_corner_keys else 0
-        cost_dual_lock = (total_quantity * mat_dual_lock.yield_cost) / cp['yield_cat5'] if mat_dual_lock else 0
-        cost_foam_baffle_top = (0.5 * total_horizontal * mat_foam_baffle_top.yield_cost) / cp['yield_cat6'] if mat_foam_baffle_top else 0
-        cost_foam_baffle_bottom = (0.5 * total_horizontal * mat_foam_baffle_bottom.yield_cost) / cp['yield_cat6'] if mat_foam_baffle_bottom else 0
-        if cp.get("glass_protection_side") == "one":
-            cost_glass_protection = (total_area * mat_glass_protection.yield_cost) / cp['yield_cat7'] if mat_glass_protection else 0
-        elif cp.get("glass_protection_side") == "double":
-            cost_glass_protection = (total_area * mat_glass_protection.yield_cost * 2) / cp['yield_cat7'] if mat_glass_protection else 0
+            flag_retainer = ""
+
+        # Glazing Spline (Cat 2) - using total_perimeter
+        if mat_glazing:
+            required_glazing = total_perimeter
+            if required_glazing > mat_glazing.quantity:
+                delta = required_glazing - mat_glazing.quantity
+                moq = mat_glazing.moq if mat_glazing.moq is not None else 0
+                if delta <= moq:
+                    cost_glazing = mat_glazing.moq_cost
+                    flag_glazing = "MOQ applied"
+                else:
+                    cost_glazing = (required_glazing * mat_glazing.yield_cost) / cp['yield_cat2']
+                    flag_glazing = ""
+            else:
+                cost_glazing = (required_glazing * mat_glazing.yield_cost) / cp['yield_cat2']
+                flag_glazing = ""
+        else:
+            cost_glazing = 0
+            flag_glazing = ""
+
+        # Gaskets (Cat 3) - using total_vertical
+        if mat_gaskets:
+            required_gaskets = total_vertical
+            if required_gaskets > mat_gaskets.quantity:
+                delta = required_gaskets - mat_gaskets.quantity
+                moq = mat_gaskets.moq if mat_gaskets.moq is not None else 0
+                if delta <= moq:
+                    cost_gaskets = mat_gaskets.moq_cost
+                    flag_gaskets = "MOQ applied"
+                else:
+                    cost_gaskets = (required_gaskets * mat_gaskets.yield_cost) / cp['yield_cat3']
+                    flag_gaskets = ""
+            else:
+                cost_gaskets = (required_gaskets * mat_gaskets.yield_cost) / cp['yield_cat3']
+                flag_gaskets = ""
+        else:
+            cost_gaskets = 0
+            flag_gaskets = ""
+
+        # Corner Keys (Cat 4) - using total_quantity * 4
+        if mat_corner_keys:
+            required_corner_keys = total_quantity * 4
+            if required_corner_keys > mat_corner_keys.quantity:
+                delta = required_corner_keys - mat_corner_keys.quantity
+                moq = mat_corner_keys.moq if mat_corner_keys.moq is not None else 0
+                if delta <= moq:
+                    cost_corner_keys = mat_corner_keys.moq_cost
+                    flag_corner_keys = "MOQ applied"
+                else:
+                    cost_corner_keys = (required_corner_keys * mat_corner_keys.yield_cost) / cp['yield_cat4']
+                    flag_corner_keys = ""
+            else:
+                cost_corner_keys = (required_corner_keys * mat_corner_keys.yield_cost) / cp['yield_cat4']
+                flag_corner_keys = ""
+        else:
+            cost_corner_keys = 0
+            flag_corner_keys = ""
+
+        # Dual Lock (Cat 5) - using total_quantity
+        if mat_dual_lock:
+            required_dual_lock = total_quantity
+            if required_dual_lock > mat_dual_lock.quantity:
+                delta = required_dual_lock - mat_dual_lock.quantity
+                moq = mat_dual_lock.moq if mat_dual_lock.moq is not None else 0
+                if delta <= moq:
+                    cost_dual_lock = mat_dual_lock.moq_cost
+                    flag_dual_lock = "MOQ applied"
+                else:
+                    cost_dual_lock = (required_dual_lock * mat_dual_lock.yield_cost) / cp['yield_cat5']
+                    flag_dual_lock = ""
+            else:
+                cost_dual_lock = (required_dual_lock * mat_dual_lock.yield_cost) / cp['yield_cat5']
+                flag_dual_lock = ""
+        else:
+            cost_dual_lock = 0
+            flag_dual_lock = ""
+
+        # Foam Baffle Top (Cat 6) - using 0.5 * total_horizontal
+        if mat_foam_baffle_top:
+            required_foam_baffle_top = 0.5 * total_horizontal
+            if required_foam_baffle_top > mat_foam_baffle_top.quantity:
+                delta = required_foam_baffle_top - mat_foam_baffle_top.quantity
+                moq = mat_foam_baffle_top.moq if mat_foam_baffle_top.moq is not None else 0
+                if delta <= moq:
+                    cost_foam_baffle_top = mat_foam_baffle_top.moq_cost
+                    flag_foam_baffle_top = "MOQ applied"
+                else:
+                    cost_foam_baffle_top = (required_foam_baffle_top * mat_foam_baffle_top.yield_cost) / cp[
+                        'yield_cat6']
+                    flag_foam_baffle_top = ""
+            else:
+                cost_foam_baffle_top = (required_foam_baffle_top * mat_foam_baffle_top.yield_cost) / cp['yield_cat6']
+                flag_foam_baffle_top = ""
+        else:
+            cost_foam_baffle_top = 0
+            flag_foam_baffle_top = ""
+
+        # Foam Baffle Bottom (Cat 6) - using 0.5 * total_horizontal
+        if mat_foam_baffle_bottom:
+            required_foam_baffle_bottom = 0.5 * total_horizontal
+            if required_foam_baffle_bottom > mat_foam_baffle_bottom.quantity:
+                delta = required_foam_baffle_bottom - mat_foam_baffle_bottom.quantity
+                moq = mat_foam_baffle_bottom.moq if mat_foam_baffle_bottom.moq is not None else 0
+                if delta <= moq:
+                    cost_foam_baffle_bottom = mat_foam_baffle_bottom.moq_cost
+                    flag_foam_baffle_bottom = "MOQ applied"
+                else:
+                    cost_foam_baffle_bottom = (required_foam_baffle_bottom * mat_foam_baffle_bottom.yield_cost) / cp[
+                        'yield_cat6']
+                    flag_foam_baffle_bottom = ""
+            else:
+                cost_foam_baffle_bottom = (required_foam_baffle_bottom * mat_foam_baffle_bottom.yield_cost) / cp[
+                    'yield_cat6']
+                flag_foam_baffle_bottom = ""
+        else:
+            cost_foam_baffle_bottom = 0
+            flag_foam_baffle_bottom = ""
+
+        # Glass Protection (Cat 7) - using total_area
+        if mat_glass_protection:
+            required_glass_protection = total_area
+            if required_glass_protection > mat_glass_protection.quantity:
+                delta = required_glass_protection - mat_glass_protection.quantity
+                moq = mat_glass_protection.moq if mat_glass_protection.moq is not None else 0
+                if delta <= moq:
+                    cost_glass_protection = mat_glass_protection.moq_cost
+                    flag_glass_protection = "MOQ applied"
+                else:
+                    cost_glass_protection = (required_glass_protection * mat_glass_protection.yield_cost) / cp[
+                        'yield_cat7']
+                    flag_glass_protection = ""
+            else:
+                cost_glass_protection = (required_glass_protection * mat_glass_protection.yield_cost) / cp['yield_cat7']
+                flag_glass_protection = ""
         else:
             cost_glass_protection = 0
+            flag_glass_protection = ""
+
+        # Tape (Cat 10)
         if mat_tape:
             if cp.get("retainer_attachment_option") == 'head_retainer':
-                cost_tape = ((total_horizontal / 2) * mat_tape.yield_cost) / cp['yield_cat10']
+                required_tape = total_horizontal / 2
             elif cp.get("retainer_attachment_option") == 'head_sill':
-                cost_tape = (total_horizontal * mat_tape.yield_cost) / cp['yield_cat10']
+                required_tape = total_horizontal
             else:
-                cost_tape = 0
+                required_tape = 0
+            if required_tape > mat_tape.quantity:
+                delta = required_tape - mat_tape.quantity
+                moq = mat_tape.moq if mat_tape.moq is not None else 0
+                if delta <= moq:
+                    cost_tape = mat_tape.moq_cost
+                    flag_tape = "MOQ applied"
+                else:
+                    cost_tape = (required_tape * mat_tape.yield_cost) / cp['yield_cat10']
+                    flag_tape = ""
+            else:
+                cost_tape = (required_tape * mat_tape.yield_cost) / cp['yield_cat10']
+                flag_tape = ""
         else:
             cost_tape = 0
-        if cp.get("screws_option") == "head_retainer":
-            cost_screws = (0.5 * total_horizontal * 4 * (mat_screws.yield_cost if mat_screws else 0))
-        elif cp.get("screws_option") == "head_and_sill":
-            cost_screws = (total_horizontal * 4 * (mat_screws.yield_cost if mat_screws else 0))
+            flag_tape = ""
+
+        # Screws (Cat 18)
+        if mat_screws:
+            if cp.get("screws_option") == "head_retainer":
+                required_screws = 0.5 * total_horizontal * 4
+            elif cp.get("screws_option") == "head_and_sill":
+                required_screws = total_horizontal * 4
+            else:
+                required_screws = 0
+            if required_screws > mat_screws.quantity:
+                delta = required_screws - mat_screws.quantity
+                moq = mat_screws.moq if mat_screws.moq is not None else 0
+                if delta <= moq:
+                    cost_screws = mat_screws.moq_cost
+                    flag_screws = "MOQ applied"
+                else:
+                    cost_screws = (required_screws * mat_screws.yield_cost)
+                    flag_screws = ""
+            else:
+                cost_screws = (required_screws * mat_screws.yield_cost)
+                flag_screws = ""
         else:
             cost_screws = 0
-        # --- Calculate Cost for Setting Block ---
-        total_setting_blocks = total_quantity * 2  # 2 setting blocks per panel
-        cost_setting_block = (total_setting_blocks * mat_setting_block.yield_cost) / cp['yield_cat16'] if mat_setting_block else 0
+            flag_screws = ""
+
+        # Setting Block (Cat 16) - using 2 per panel
+        if mat_setting_block:
+            required_setting_block = total_quantity * 2
+            if required_setting_block > mat_setting_block.quantity:
+                delta = required_setting_block - mat_setting_block.quantity
+                moq = mat_setting_block.moq if mat_setting_block.moq is not None else 0
+                if delta <= moq:
+                    cost_setting_block = mat_setting_block.moq_cost
+                    flag_setting_block = "MOQ applied"
+                else:
+                    cost_setting_block = (required_setting_block * mat_setting_block.yield_cost) / cp['yield_cat16']
+                    flag_setting_block = ""
+            else:
+                cost_setting_block = (required_setting_block * mat_setting_block.yield_cost) / cp['yield_cat16']
+                flag_setting_block = ""
+        else:
+            cost_setting_block = 0
+            flag_setting_block = ""
 
         total_material_cost = (cost_glass + cost_aluminum + cost_retainer + cost_glazing + cost_gaskets +
                                cost_corner_keys + cost_dual_lock + cost_foam_baffle_top + cost_foam_baffle_bottom +
                                cost_glass_protection + cost_tape + cost_screws + cost_setting_block)
         cp['material_total_cost'] = total_material_cost
 
-        # Build a full materials list (restoring all categories)
+        # Build the full materials list with Calculation fields updated to show "MOQ Cost" if the MOQ cost was applied.
         materials_list = [
             {
                 "Category": "Glass (Cat 15)",
                 "Selected Material": mat_glass.nickname if mat_glass else "N/A",
                 "Unit Cost": mat_glass.yield_cost if mat_glass else 0,
-                "Calculation": f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_cat15']}",
+                "Calculation": "MOQ Cost" if flag_glass else f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_cat15']}",
                 "Cost ($)": cost_glass
             },
             {
                 "Category": "Extrusions (Cat 1)",
                 "Selected Material": mat_aluminum.nickname if mat_aluminum else "N/A",
                 "Unit Cost": mat_aluminum.yield_cost if mat_aluminum else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_aluminum']}",
+                "Calculation": "MOQ Cost" if flag_aluminum else f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_aluminum']}",
                 "Cost ($)": cost_aluminum
             },
             {
                 "Category": "Retainer (Cat 17)",
-                "Selected Material": (mat_retainer.nickname if mat_retainer else "N/A") if cp.get("retainer_option") != "no_retainer" else "N/A",
-                "Unit Cost": (mat_retainer.yield_cost if mat_retainer else 0) if cp.get("retainer_option") != "no_retainer" else 0,
+                "Selected Material": (mat_retainer.nickname if mat_retainer else "N/A") if cp.get(
+                    "retainer_option") != "no_retainer" else "N/A",
+                "Unit Cost": (mat_retainer.yield_cost if mat_retainer else 0) if cp.get(
+                    "retainer_option") != "no_retainer" else 0,
                 "Calculation": (
-                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_aluminum']}"
+                    (
+                        "MOQ Cost" if flag_retainer else f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_aluminum']}")
                     if cp.get("retainer_option") == "head_retainer"
-                    else (
-                        f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Yield Cost × {cp['yield_aluminum']}"
-                        if cp.get("retainer_option") == "head_and_sill" else "No Retainer")),
+                    else ((
+                              "MOQ Cost" if flag_retainer else f"Head + Sill Retainer: Total Horizontal {total_horizontal:.2f} × Yield Cost × {cp['yield_aluminum']}") if cp.get(
+                        "retainer_option") == "head_and_sill" else "No Retainer")
+                ),
                 "Cost ($)": cost_retainer
             },
             {
                 "Category": "Glazing Spline (Cat 2)",
                 "Selected Material": mat_glazing.nickname if mat_glazing else "N/A",
                 "Unit Cost": mat_glazing.yield_cost if mat_glazing else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_cat2']}",
+                "Calculation": "MOQ Cost" if flag_glazing else f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_cat2']}",
                 "Cost ($)": cost_glazing
             },
             {
                 "Category": "Gaskets (Cat 3)",
                 "Selected Material": mat_gaskets.nickname if mat_gaskets else "N/A",
                 "Unit Cost": mat_gaskets.yield_cost if mat_gaskets else 0,
-                "Calculation": f"Total Vertical {total_vertical:.2f} × Yield Cost / {cp['yield_cat3']}",
+                "Calculation": "MOQ Cost" if flag_gaskets else f"Total Vertical {total_vertical:.2f} × Yield Cost / {cp['yield_cat3']}",
                 "Cost ($)": cost_gaskets
             },
             {
                 "Category": "Corner Keys (Cat 4)",
                 "Selected Material": mat_corner_keys.nickname if mat_corner_keys else "N/A",
                 "Unit Cost": mat_corner_keys.yield_cost if mat_corner_keys else 0,
-                "Calculation": f"Total Quantity {total_quantity:.2f} × 4 × Yield Cost / {cp['yield_cat4']}",
+                "Calculation": "MOQ Cost" if flag_corner_keys else f"Total Quantity {total_quantity:.2f} × 4 × Yield Cost / {cp['yield_cat4']}",
                 "Cost ($)": cost_corner_keys
             },
             {
                 "Category": "Dual Lock (Cat 5)",
                 "Selected Material": mat_dual_lock.nickname if mat_dual_lock else "N/A",
                 "Unit Cost": mat_dual_lock.yield_cost if mat_dual_lock else 0,
-                "Calculation": f"Total Quantity {total_quantity:.2f} × Yield Cost / {cp['yield_cat5']}",
+                "Calculation": "MOQ Cost" if flag_dual_lock else f"Total Quantity {total_quantity:.2f} × Yield Cost / {cp['yield_cat5']}",
                 "Cost ($)": cost_dual_lock
             },
             {
                 "Category": "Foam Baffle Top/Head (Cat 6)",
                 "Selected Material": mat_foam_baffle_top.nickname if mat_foam_baffle_top else "N/A",
                 "Unit Cost": mat_foam_baffle_top.yield_cost if mat_foam_baffle_top else 0,
-                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_cat6']}",
+                "Calculation": "MOQ Cost" if flag_foam_baffle_top else f"0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_cat6']}",
                 "Cost ($)": cost_foam_baffle_top
             },
             {
                 "Category": "Foam Baffle Bottom/Sill (Cat 6)",
                 "Selected Material": mat_foam_baffle_bottom.nickname if mat_foam_baffle_bottom else "N/A",
                 "Unit Cost": mat_foam_baffle_bottom.yield_cost if mat_foam_baffle_bottom else 0,
-                "Calculation": f"0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_cat6']}",
+                "Calculation": "MOQ Cost" if flag_foam_baffle_bottom else f"0.5 × Total Horizontal {total_horizontal:.2f} × Yield Cost / {cp['yield_cat6']}",
                 "Cost ($)": cost_foam_baffle_bottom
             },
             {
                 "Category": "Glass Protection (Cat 7)",
                 "Selected Material": mat_glass_protection.nickname if mat_glass_protection else "N/A",
                 "Unit Cost": mat_glass_protection.yield_cost if mat_glass_protection else 0,
-                "Calculation": (f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_cat7']}"
-                                if cp.get("glass_protection_side") == "one"
-                                else (f"Total Area {total_area:.2f} × Yield Cost × 2 / {cp['yield_cat7']}"
-                                      if cp.get("glass_protection_side") == "double" else "No Film")),
+                "Calculation": (
+                    "MOQ Cost" if flag_glass_protection else f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_cat7']}") if cp.get(
+                    "glass_protection_side") == "one"
+                else ((
+                          "MOQ Cost" if flag_glass_protection else f"Total Area {total_area:.2f} × Yield Cost × 2 / {cp['yield_cat7']}") if cp.get(
+                    "glass_protection_side") == "double" else "No Film"),
                 "Cost ($)": cost_glass_protection
             },
             {
                 "Category": "Tape (Cat 10)",
                 "Selected Material": mat_tape.nickname if mat_tape else "N/A",
                 "Unit Cost": mat_tape.yield_cost if mat_tape else 0,
-                "Calculation": "Retainer Attachment Option: " + (
+                "Calculation": "MOQ Cost" if flag_tape else "Retainer Attachment Option: " + (
                     "(Head Retainer - Half Horizontal)" if cp.get("retainer_attachment_option") == "head_retainer"
-                    else ("(Head+Sill - Full Horizontal)" if cp.get("retainer_attachment_option") == "head_sill" else "No Tape")),
+                    else ("(Head+Sill - Full Horizontal)" if cp.get(
+                        "retainer_attachment_option") == "head_sill" else "No Tape")),
                 "Cost ($)": cost_tape
             },
             {
                 "Category": "Screws (Cat 18)",
                 "Selected Material": mat_screws.nickname if mat_screws else "N/A",
                 "Unit Cost": mat_screws.yield_cost if mat_screws else 0,
-                "Calculation": (f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × 4 × Yield Cost"
-                                if cp.get("screws_option") == "head_retainer"
-                                else (f"Head + Sill: Total Horizontal {total_horizontal:.2f} × 4 × Yield Cost"
-                                      if cp.get("screws_option") == "head_and_sill" else "No Screws")),
+                "Calculation": ("MOQ Cost" if flag_screws else (
+                    f"Head Retainer: 0.5 × Total Horizontal {total_horizontal:.2f} × 4 × Yield Cost" if cp.get(
+                        "screws_option") == "head_retainer"
+                    else (f"Head + Sill: Total Horizontal {total_horizontal:.2f} × 4 × Yield Cost" if cp.get(
+                        "screws_option") == "head_and_sill" else "No Screws"))),
                 "Cost ($)": cost_screws
             },
             # --- Added Setting Block Item ---
@@ -599,7 +853,7 @@ def materials_page():
                 "Category": "Setting Block (Cat 16)",
                 "Selected Material": mat_setting_block.nickname if mat_setting_block else "N/A",
                 "Unit Cost": mat_setting_block.yield_cost if mat_setting_block else 0,
-                "Calculation": f"Total Panels {total_quantity:.2f} × 2 × Yield Cost / {cp['yield_cat16']}",
+                "Calculation": "MOQ Cost" if flag_setting_block else f"Total Panels {total_quantity:.2f} × 2 × Yield Cost / {cp['yield_cat16']}",
                 "Cost ($)": cost_setting_block
             },
         ]
@@ -844,6 +1098,8 @@ def materials_page():
       </body>
     </html>
     """
+
+
 @app.route('/igr_materials', methods=['GET', 'POST'])
 def igr_materials():
     cp = get_current_project()
@@ -893,140 +1149,200 @@ def igr_materials():
         save_current_project(cp)
 
         mat_igr_glass = Material.query.get(cp.get("igr_material_glass")) if cp.get("igr_material_glass") else None
-        mat_igr_extrusions = Material.query.get(cp.get("igr_material_extrusions")) if cp.get("igr_material_extrusions") else None
+        mat_igr_extrusions = Material.query.get(cp.get("igr_material_extrusions")) if cp.get(
+            "igr_material_extrusions") else None
         mat_igr_gaskets = Material.query.get(cp.get("igr_material_gaskets")) if cp.get("igr_material_gaskets") else None
-        mat_igr_glass_protection = Material.query.get(cp.get("igr_material_glass_protection")) if cp.get("igr_material_glass_protection") else None
-        mat_igr_perimeter_tape = Material.query.get(cp.get("igr_material_perimeter_tape")) if cp.get("igr_material_perimeter_tape") else None
-        mat_igr_structural_tape = Material.query.get(cp.get("igr_material_structural_tape")) if cp.get("igr_material_structural_tape") else None
+        mat_igr_glass_protection = Material.query.get(cp.get("igr_material_glass_protection")) if cp.get(
+            "igr_material_glass_protection") else None
+        mat_igr_perimeter_tape = Material.query.get(cp.get("igr_material_perimeter_tape")) if cp.get(
+            "igr_material_perimeter_tape") else None
+        mat_igr_structural_tape = Material.query.get(cp.get("igr_material_structural_tape")) if cp.get(
+            "igr_material_structural_tape") else None
 
         total_area = cp.get('igr_total_area', 0)
         total_perimeter = cp.get('igr_total_perimeter', 0)
         total_vertical = cp.get('igr_total_vertical_ft', 0)
 
-        cost_igr_glass = (total_area * mat_igr_glass.yield_cost) / cp['yield_igr_glass'] if mat_igr_glass else 0
-        cost_igr_extrusions = (total_perimeter * mat_igr_extrusions.yield_cost) / cp['yield_igr_extrusions'] if mat_igr_extrusions else 0
-        cost_igr_gaskets = (total_vertical * mat_igr_gaskets.yield_cost) / cp['yield_igr_gaskets'] if mat_igr_gaskets else 0
-        cost_igr_glass_protection = (total_area * mat_igr_glass_protection.yield_cost) / cp['yield_igr_glass_protection'] if mat_igr_glass_protection else 0
+        # --- IGR Glass (Cat 15) ---
+        if mat_igr_glass:
+            required_igr_glass = total_area
+            if required_igr_glass > mat_igr_glass.quantity:
+                delta = required_igr_glass - mat_igr_glass.quantity
+                moq = mat_igr_glass.moq if mat_igr_glass.moq is not None else 0
+                if delta <= moq:
+                    cost_igr_glass = mat_igr_glass.moq_cost
+                    flag_igr_glass = "MOQ applied"
+                else:
+                    cost_igr_glass = (required_igr_glass * mat_igr_glass.yield_cost) / cp['yield_igr_glass']
+                    flag_igr_glass = ""
+            else:
+                cost_igr_glass = (required_igr_glass * mat_igr_glass.yield_cost) / cp['yield_igr_glass']
+                flag_igr_glass = ""
+        else:
+            cost_igr_glass = 0
+            flag_igr_glass = ""
+
+        # --- IGR Extrusions (Cat 1) ---
+        if mat_igr_extrusions:
+            required_igr_extrusions = total_perimeter
+            if required_igr_extrusions > mat_igr_extrusions.quantity:
+                delta = required_igr_extrusions - mat_igr_extrusions.quantity
+                moq = mat_igr_extrusions.moq if mat_igr_extrusions.moq is not None else 0
+                if delta <= moq:
+                    cost_igr_extrusions = mat_igr_extrusions.moq_cost
+                    flag_igr_extrusions = "MOQ applied"
+                else:
+                    cost_igr_extrusions = (required_igr_extrusions * mat_igr_extrusions.yield_cost) / cp[
+                        'yield_igr_extrusions']
+                    flag_igr_extrusions = ""
+            else:
+                cost_igr_extrusions = (required_igr_extrusions * mat_igr_extrusions.yield_cost) / cp[
+                    'yield_igr_extrusions']
+                flag_igr_extrusions = ""
+        else:
+            cost_igr_extrusions = 0
+            flag_igr_extrusions = ""
+
+        # --- IGR Gaskets (Cat 3) ---
+        if mat_igr_gaskets:
+            required_igr_gaskets = total_vertical
+            if required_igr_gaskets > mat_igr_gaskets.quantity:
+                delta = required_igr_gaskets - mat_igr_gaskets.quantity
+                moq = mat_igr_gaskets.moq if mat_igr_gaskets.moq is not None else 0
+                if delta <= moq:
+                    cost_igr_gaskets = mat_igr_gaskets.moq_cost
+                    flag_igr_gaskets = "MOQ applied"
+                else:
+                    cost_igr_gaskets = (required_igr_gaskets * mat_igr_gaskets.yield_cost) / cp['yield_igr_gaskets']
+                    flag_igr_gaskets = ""
+            else:
+                cost_igr_gaskets = (required_igr_gaskets * mat_igr_gaskets.yield_cost) / cp['yield_igr_gaskets']
+                flag_igr_gaskets = ""
+        else:
+            cost_igr_gaskets = 0
+            flag_igr_gaskets = ""
+
+        # --- IGR Glass Protection (Cat 7) ---
+        if mat_igr_glass_protection:
+            required_igr_glass_protection = total_area
+            if required_igr_glass_protection > mat_igr_glass_protection.quantity:
+                delta = required_igr_glass_protection - mat_igr_glass_protection.quantity
+                moq = mat_igr_glass_protection.moq if mat_igr_glass_protection.moq is not None else 0
+                if delta <= moq:
+                    cost_igr_glass_protection = mat_igr_glass_protection.moq_cost
+                    flag_igr_glass_protection = "MOQ applied"
+                else:
+                    cost_igr_glass_protection = (required_igr_glass_protection * mat_igr_glass_protection.yield_cost) / \
+                                                cp['yield_igr_glass_protection']
+                    flag_igr_glass_protection = ""
+            else:
+                cost_igr_glass_protection = (required_igr_glass_protection * mat_igr_glass_protection.yield_cost) / cp[
+                    'yield_igr_glass_protection']
+                flag_igr_glass_protection = ""
+        else:
+            cost_igr_glass_protection = 0
+            flag_igr_glass_protection = ""
+
+        # --- IGR Perimeter Butyl Tape (Cat 10) ---
         if cp.get('igr_type') == "Dry Seal IGR":
             cost_igr_perimeter_tape = 0
+            flag_igr_perimeter_tape = ""
         else:
-            cost_igr_perimeter_tape = (total_perimeter * mat_igr_perimeter_tape.yield_cost) / cp['yield_igr_perimeter_tape'] if mat_igr_perimeter_tape else 0
-        cost_igr_structural_tape = (total_perimeter * mat_igr_structural_tape.yield_cost) / cp['yield_igr_structural_tape'] if mat_igr_structural_tape else 0
+            if mat_igr_perimeter_tape:
+                required_igr_perimeter_tape = total_perimeter
+                if required_igr_perimeter_tape > mat_igr_perimeter_tape.quantity:
+                    delta = required_igr_perimeter_tape - mat_igr_perimeter_tape.quantity
+                    moq = mat_igr_perimeter_tape.moq if mat_igr_perimeter_tape.moq is not None else 0
+                    if delta <= moq:
+                        cost_igr_perimeter_tape = mat_igr_perimeter_tape.moq_cost
+                        flag_igr_perimeter_tape = "MOQ applied"
+                    else:
+                        cost_igr_perimeter_tape = (required_igr_perimeter_tape * mat_igr_perimeter_tape.yield_cost) / \
+                                                  cp['yield_igr_perimeter_tape']
+                        flag_igr_perimeter_tape = ""
+                else:
+                    cost_igr_perimeter_tape = (required_igr_perimeter_tape * mat_igr_perimeter_tape.yield_cost) / cp[
+                        'yield_igr_perimeter_tape']
+                    flag_igr_perimeter_tape = ""
+            else:
+                cost_igr_perimeter_tape = 0
+                flag_igr_perimeter_tape = ""
+
+        # --- IGR Structural Glazing Tape (Cat 10) ---
+        if mat_igr_structural_tape:
+            required_igr_structural_tape = total_perimeter
+            if required_igr_structural_tape > mat_igr_structural_tape.quantity:
+                delta = required_igr_structural_tape - mat_igr_structural_tape.quantity
+                moq = mat_igr_structural_tape.moq if mat_igr_structural_tape.moq is not None else 0
+                if delta <= moq:
+                    cost_igr_structural_tape = mat_igr_structural_tape.moq_cost
+                    flag_igr_structural_tape = "MOQ applied"
+                else:
+                    cost_igr_structural_tape = (required_igr_structural_tape * mat_igr_structural_tape.yield_cost) / cp[
+                        'yield_igr_structural_tape']
+                    flag_igr_structural_tape = ""
+            else:
+                cost_igr_structural_tape = (required_igr_structural_tape * mat_igr_structural_tape.yield_cost) / cp[
+                    'yield_igr_structural_tape']
+                flag_igr_structural_tape = ""
+        else:
+            cost_igr_structural_tape = 0
+            flag_igr_structural_tape = ""
 
         total_igr_material_cost = (cost_igr_glass + cost_igr_extrusions + cost_igr_gaskets +
                                    cost_igr_glass_protection + cost_igr_perimeter_tape + cost_igr_structural_tape)
         cp['igr_material_total_cost'] = total_igr_material_cost
 
-        igr_material_map = {
-            "IGR Glass (Cat 15)": mat_igr_glass,
-            "IGR Extrusions (Cat 1)": mat_igr_extrusions,
-            "IGR Gaskets (Cat 3)": mat_igr_gaskets,
-            "IGR Glass Protection (Cat 7)": mat_igr_glass_protection,
-            "IGR Perimeter Butyl Tape (Cat 10)": mat_igr_perimeter_tape,
-            "IGR Structural Glazing Tape (Cat 10)": mat_igr_structural_tape
-        }
-
-        def get_igr_required_quantity(category):
-            if category == "IGR Glass (Cat 15)":
-                return total_area
-            elif category == "IGR Extrusions (Cat 1)":
-                return total_perimeter
-            elif category == "IGR Gaskets (Cat 3)":
-                return total_vertical
-            elif category == "IGR Glass Protection (Cat 7)":
-                return total_area
-            elif category == "IGR Perimeter Butyl Tape (Cat 10)":
-                return total_perimeter
-            elif category == "IGR Structural Glazing Tape (Cat 10)":
-                return total_perimeter
-            else:
-                return 0
-
+        # Build IGR items list with MOQ flags in the Calculation fields
         igr_items = [
             {
                 "Category": "IGR Glass (Cat 15)",
                 "Selected Material": mat_igr_glass.nickname if mat_igr_glass else "N/A",
                 "Unit Cost": mat_igr_glass.yield_cost if mat_igr_glass else 0,
-                "Calculation": f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_igr_glass']}",
+                "Calculation": "MOQ Cost" if flag_igr_glass else f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_igr_glass']}",
                 "Cost ($)": cost_igr_glass
             },
             {
                 "Category": "IGR Extrusions (Cat 1)",
                 "Selected Material": mat_igr_extrusions.nickname if mat_igr_extrusions else "N/A",
                 "Unit Cost": mat_igr_extrusions.yield_cost if mat_igr_extrusions else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_igr_extrusions']}",
+                "Calculation": "MOQ Cost" if flag_igr_extrusions else f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_igr_extrusions']}",
                 "Cost ($)": cost_igr_extrusions
             },
             {
                 "Category": "IGR Gaskets (Cat 3)",
                 "Selected Material": mat_igr_gaskets.nickname if mat_igr_gaskets else "N/A",
                 "Unit Cost": mat_igr_gaskets.yield_cost if mat_igr_gaskets else 0,
-                "Calculation": f"Total Vertical {total_vertical:.2f} × Yield Cost / {cp['yield_igr_gaskets']}",
+                "Calculation": "MOQ Cost" if flag_igr_gaskets else f"Total Vertical {total_vertical:.2f} × Yield Cost / {cp['yield_igr_gaskets']}",
                 "Cost ($)": cost_igr_gaskets
             },
             {
                 "Category": "IGR Glass Protection (Cat 7)",
                 "Selected Material": mat_igr_glass_protection.nickname if mat_igr_glass_protection else "N/A",
                 "Unit Cost": mat_igr_glass_protection.yield_cost if mat_igr_glass_protection else 0,
-                "Calculation": f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_igr_glass_protection']}",
+                "Calculation": (
+                    "MOQ Cost" if flag_igr_glass_protection else f"Total Area {total_area:.2f} × Yield Cost / {cp['yield_igr_glass_protection']}"),
                 "Cost ($)": cost_igr_glass_protection
             },
             {
                 "Category": "IGR Perimeter Butyl Tape (Cat 10)",
                 "Selected Material": mat_igr_perimeter_tape.nickname if mat_igr_perimeter_tape else "N/A",
                 "Unit Cost": mat_igr_perimeter_tape.yield_cost if mat_igr_perimeter_tape else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_igr_perimeter_tape']}",
+                "Calculation": (
+                    "MOQ Cost" if flag_igr_perimeter_tape else f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_igr_perimeter_tape']}"),
                 "Cost ($)": cost_igr_perimeter_tape
             },
             {
                 "Category": "IGR Structural Glazing Tape (Cat 10)",
                 "Selected Material": mat_igr_structural_tape.nickname if mat_igr_structural_tape else "N/A",
                 "Unit Cost": mat_igr_structural_tape.yield_cost if mat_igr_structural_tape else 0,
-                "Calculation": f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_igr_structural_tape']}",
+                "Calculation": (
+                    "MOQ Cost" if flag_igr_structural_tape else f"Total Perimeter {total_perimeter:.2f} × Yield Cost / {cp['yield_igr_structural_tape']}"),
                 "Cost ($)": cost_igr_structural_tape
             }
         ]
-        # --- Compute Lead Times for IGR Materials ---
-        igr_materials = [mat_igr_glass, mat_igr_extrusions, mat_igr_gaskets,
-                         mat_igr_glass_protection, mat_igr_perimeter_tape, mat_igr_structural_tape]
-        igr_min_lead = 0
-        igr_max_lead = 0
-        for m in igr_materials:
-            if m:
-                igr_min_lead = max(igr_min_lead, m.min_lead if m.min_lead is not None else 0)
-                igr_max_lead = max(igr_max_lead, m.max_lead if m.max_lead is not None else 0)
-        cp["igr_min_lead_material"] = igr_min_lead
-        cp["igr_max_lead_material"] = igr_max_lead
-        cp["igr_min_lead_fabrication"] = igr_min_lead
-        cp["igr_max_lead_fabrication"] = igr_max_lead
-        cp["igr_min_total_lead"] = igr_min_lead * 2
-        cp["igr_max_total_lead"] = igr_max_lead * 2
-
-        save_current_project(cp)
-
-        for item in igr_items:
-            req_qty = get_igr_required_quantity(item["Category"])
-            mat_obj = igr_material_map.get(item["Category"])
-            stock_pct = (mat_obj.quantity / req_qty * 100) if (mat_obj and req_qty > 0) else 0
-            item["$ per SF"] = (item["Cost ($)"] / total_area if total_area > 0 else 0)
-            item["% Total Cost"] = (item["Cost ($)"] / cp.get("igr_material_total_cost", 1) * 100 if cp.get("igr_material_total_cost", 0) > 0 else 0)
-            item["Stock Level"] = f"{stock_pct:.2f}%"
-            if mat_obj:
-                item["Min Lead"] = mat_obj.min_lead if mat_obj.min_lead is not None else "N/A"
-                item["Max Lead"] = mat_obj.max_lead if mat_obj.max_lead is not None else "N/A"
-            else:
-                item["Min Lead"] = "N/A"
-                item["Max Lead"] = "N/A"
-            discount_key = "discount_" + "".join(c if c.isalnum() else "_" for c in item["Category"])
-            try:
-                discount_value = float((request.form.get(discount_key) or "").strip()) if request.form.get(discount_key) else cp.get(discount_key, 0)
-            except:
-                discount_value = 0
-            cp[discount_key] = discount_value
-            item["Discount/Surcharge"] = discount_value
-            item["Final Cost"] = item["Cost ($)"] + discount_value
-        total_final_cost = sum(item["Final Cost"] for item in igr_items)
         cp["igr_itemized_costs"] = igr_items
+        save_current_project(cp)
         next_button = '<button type="button" class="btn" onclick="window.location.href=\'/other_costs\'">Next: Additional Costs</button>'
         result_html = f"""
          <html>
@@ -1050,13 +1366,13 @@ def igr_materials():
                  <td>{item['Unit Cost']:.2f}</td>
                  <td>{item['Calculation']}</td>
                  <td class='cost'>{item['Cost ($)']:.2f}</td>
-                 <td>{(item['Final Cost'] / total_area if total_area > 0 else 0):.2f}</td>
-                 <td>{(item['Final Cost'] / total_final_cost * 100 if total_final_cost > 0 else 0):.2f}</td>
-                 <td>{item['Stock Level']}</td>
-                 <td>{item['Min Lead']}</td>
-                 <td>{item['Max Lead']}</td>
-                 <td><input type='number' step='1' name='{discount_key}' value='{item['Discount/Surcharge']}' oninput='updateFinalCost(this)' /></td>
-                 <td class='final-cost'>{item['Final Cost']:.2f}</td>
+                 <td>{(item['Cost ($)'] / total_area if total_area > 0 else 0):.2f}</td>
+                 <td>{(item['Cost ($)'] / cp.get("igr_material_total_cost", 1) * 100 if cp.get("igr_material_total_cost", 0) > 0 else 0):.2f}</td>
+                 <td>N/A</td>
+                 <td>N/A</td>
+                 <td>N/A</td>
+                 <td><input type='number' step='1' name='{discount_key}' value='0' oninput='updateFinalCost(this)' /></td>
+                 <td class='final-cost'>{item['Cost ($)']:.2f}</td>
                </tr>
             """
         result_html += f"""
@@ -2049,43 +2365,49 @@ def create_final_export_excel(margins_dict=None):
     ws.write("D6", "Vertical (ft)")
     ws.write("E6", cp.get("swr_total_vertical_ft", 0) + cp.get("igr_total_vertical_ft", 0))
 
-    # Detailed SWR Itemized Costs (updated with more columns)
+    # ----------------- Detailed SWR Itemized Costs -----------------
     ws.write("G1", "Detailed SWR Itemized Costs")
-    headers_swr = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Final Cost ($)"]
+    headers_swr = ["Category", "Selected Material", "Unit Cost", "Calculation", "MOQ Applied", "Cost ($)",
+                   "Final Cost ($)"]
     for col, header in enumerate(headers_swr):
         ws.write(1, col, header)
     row = 2
     for item in cp.get("itemized_costs", []):
+        moq_flag = "Yes" if "MOQ Cost" in item.get("Calculation", "") else "No"
         ws.write(row, 0, item.get("Category", ""))
         ws.write(row, 1, item.get("Selected Material", ""))
         ws.write(row, 2, item.get("Unit Cost", 0))
         ws.write(row, 3, item.get("Calculation", ""))
-        ws.write(row, 4, item.get("Cost ($)", 0))
-        ws.write(row, 5, item.get("Final Cost", 0))
+        ws.write(row, 4, moq_flag)
+        ws.write(row, 5, item.get("Cost ($)", 0))
+        ws.write(row, 6, item.get("Final Cost", 0))
         row += 1
     ws.write(row, 0, "Materials Note:")
     ws.write(row, 1, cp.get("swr_note", ""))
     row += 2
 
-    # Detailed IGR Itemized Costs (updated with more columns)
+    # ----------------- Detailed IGR Itemized Costs -----------------
     ws.write(row, 0, "Detailed IGR Itemized Costs")
-    headers_igr = ["Category", "Selected Material", "Unit Cost", "Calculation", "Cost ($)", "Final Cost ($)"]
+    headers_igr = ["Category", "Selected Material", "Unit Cost", "Calculation", "MOQ Applied", "Cost ($)",
+                   "Final Cost ($)"]
     for col, header in enumerate(headers_igr):
         ws.write(row + 1, col, header)
     row = row + 2
     for item in cp.get("igr_itemized_costs", []):
+        moq_flag = "Yes" if "MOQ Cost" in item.get("Calculation", "") else "No"
         ws.write(row, 0, item.get("Category", ""))
         ws.write(row, 1, item.get("Selected Material", ""))
         ws.write(row, 2, item.get("Unit Cost", 0))
         ws.write(row, 3, item.get("Calculation", ""))
-        ws.write(row, 4, item.get("Cost ($)", 0))
-        ws.write(row, 5, item.get("Final Cost", 0))
+        ws.write(row, 4, moq_flag)
+        ws.write(row, 5, item.get("Cost ($)", 0))
+        ws.write(row, 6, item.get("Final Cost", 0))
         row += 1
     ws.write(row, 0, "IGR Materials Note:")
     ws.write(row, 1, cp.get("igr_note", ""))
     row += 2
 
-    # Notes from Other Sections
+    # ----------------- Notes from Other Sections -----------------
     ws.write(row, 0, "Fabrication Note:")
     ws.write(row, 1, cp.get("fabrication_note", ""))
     row += 1
@@ -2105,7 +2427,7 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 1, cp.get("sales_note", ""))
     row += 2
 
-    # Lead Time Summary (weeks) – Side-by-Side Display
+    # ----------------- Lead Time Summary (weeks) -----------------
     ws.write(row, 0, "Lead Time Summary (weeks)")
     row += 1
     ws.write(row, 0, "Lead Material")
@@ -2127,7 +2449,7 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 4, cp.get("max_total_lead", 0))
     row += 2
 
-    # Margins Summary Section
+    # ----------------- Margins Summary Section -----------------
     ws.write(row, 0, "Margins Summary")
     row += 1
     margins_headers = ["Category", "Original Cost ($)", "Margin (%)", "Cost with Margin ($)"]
@@ -2143,7 +2465,7 @@ def create_final_export_excel(margins_dict=None):
             row += 1
     row += 2
 
-    # Product Pricing Details Section
+    # ----------------- Product Pricing Details Section -----------------
     ws.write(row, 0, "Product Pricing Details")
     row += 1
     ws.write(row, 0, "Product Price per Unit:")
@@ -2156,7 +2478,7 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 1, cp.get("pricing_area", 0))
     row += 2
 
-    # Additional Pricing Adjustments Section
+    # ----------------- Additional Pricing Adjustments Section -----------------
     ws.write(row, 0, "Additional Pricing Adjustments")
     row += 1
     ws.write(row, 0, "Product Discount (%)")
@@ -2180,7 +2502,7 @@ def create_final_export_excel(margins_dict=None):
     ws.write(row, 3, cp.get("sales_tax_dollar", 0))
     row += 2
 
-    # Final Pricing Summary Section
+    # ----------------- Final Pricing Summary Section -----------------
     ws.write(row, 0, "Final Pricing Summary")
     row += 1
     ws.write(row, 0, "Product Total (after adjustments)")
@@ -2252,7 +2574,167 @@ def create_final_export_excel(margins_dict=None):
     ws2.write("B14", crates_igr)
     ws2.write("A15", "Total Crates (Logistics)")
     ws2.write("B15", default_crates)
-    # -----------------------------------------------------------
+
+    # ------------------- Order Worksheet -------------------
+    # This sheet calculates the order quantities and prices based on inventory shortfall.
+    # For each SWR category, we determine the required amount, get the available stock,
+    # compute delta, then order quantity = ceil(delta / yield), and order price = order_qty * yield_cost.
+    ws_order = workbook.add_worksheet("Order")
+    ws_order.write("A1", "Category")
+    ws_order.write("B1", "Required Amount")
+    ws_order.write("C1", "Available")
+    ws_order.write("D1", "Delta")
+    ws_order.write("E1", "Yield Factor")
+    ws_order.write("F1", "Order Quantity")
+    ws_order.write("G1", "Yield Cost")
+    ws_order.write("H1", "Order Price")
+
+    # Helper function: Calculate the required amount for each category
+    def calc_required(category):
+        if category == "Glass (Cat 15)":
+            return cp.get("swr_total_area", 0)
+        elif category == "Extrusions (Cat 1)":
+            return cp.get("swr_total_perimeter", 0)
+        elif category == "Retainer (Cat 17)":
+            option = cp.get("retainer_option", "")
+            if option == "head_retainer":
+                return 0.5 * cp.get("swr_total_horizontal_ft", 0)
+            elif option == "head_and_sill":
+                return cp.get("swr_total_horizontal_ft", 0)
+            else:
+                return 0
+        elif category == "Glazing Spline (Cat 2)":
+            return cp.get("swr_total_perimeter", 0)
+        elif category == "Gaskets (Cat 3)":
+            return cp.get("swr_total_vertical_ft", 0)
+        elif category == "Corner Keys (Cat 4)":
+            return cp.get("swr_total_quantity", 0) * 4
+        elif category == "Dual Lock (Cat 5)":
+            return cp.get("swr_total_quantity", 0)
+        elif category == "Foam Baffle Top/Head (Cat 6)":
+            return 0.5 * cp.get("swr_total_horizontal_ft", 0)
+        elif category == "Foam Baffle Bottom/Sill (Cat 6)":
+            return 0.5 * cp.get("swr_total_horizontal_ft", 0)
+        elif category == "Glass Protection (Cat 7)":
+            return cp.get("swr_total_area", 0)
+        elif category == "Tape (Cat 10)":
+            option = cp.get("retainer_attachment_option", "")
+            if option == "head_retainer":
+                return cp.get("swr_total_horizontal_ft", 0) / 2
+            elif option == "head_sill":
+                return cp.get("swr_total_horizontal_ft", 0)
+            else:
+                return 0
+        elif category == "Screws (Cat 18)":
+            option = cp.get("screws_option", "")
+            if option == "head_retainer":
+                return 0.5 * cp.get("swr_total_horizontal_ft", 0) * 4
+            elif option == "head_and_sill":
+                return cp.get("swr_total_horizontal_ft", 0) * 4
+            else:
+                return 0
+        elif category == "Setting Block (Cat 16)":
+            return cp.get("swr_total_quantity", 0) * 2
+        else:
+            return 0
+
+    # Mapping of category to yield factors stored in cp.
+    yield_mapping = {
+        "Glass (Cat 15)": cp.get("yield_cat15", 1),
+        "Extrusions (Cat 1)": cp.get("yield_aluminum", 1),
+        "Retainer (Cat 17)": cp.get("yield_aluminum", 1),
+        "Glazing Spline (Cat 2)": cp.get("yield_cat2", 1),
+        "Gaskets (Cat 3)": cp.get("yield_cat3", 1),
+        "Corner Keys (Cat 4)": cp.get("yield_cat4", 1),
+        "Dual Lock (Cat 5)": cp.get("yield_cat5", 1),
+        "Foam Baffle Top/Head (Cat 6)": cp.get("yield_cat6", 1),
+        "Foam Baffle Bottom/Sill (Cat 6)": cp.get("yield_cat6", 1),
+        "Glass Protection (Cat 7)": cp.get("yield_cat7", 1),
+        "Tape (Cat 10)": cp.get("yield_cat10", 1),
+        "Screws (Cat 18)": 1,
+        "Setting Block (Cat 16)": cp.get("yield_cat16", 1)
+    }
+
+    # Reconstruct a mapping from category to material object for SWR materials
+    material_order_map = {}
+    if cp.get("material_glass"):
+        material_order_map["Glass (Cat 15)"] = Material.query.get(cp.get("material_glass"))
+    if cp.get("material_aluminum"):
+        material_order_map["Extrusions (Cat 1)"] = Material.query.get(cp.get("material_aluminum"))
+    if cp.get("material_retainer"):
+        material_order_map["Retainer (Cat 17)"] = Material.query.get(cp.get("material_retainer"))
+    if cp.get("material_glazing"):
+        material_order_map["Glazing Spline (Cat 2)"] = Material.query.get(cp.get("material_glazing"))
+    if cp.get("material_gaskets"):
+        material_order_map["Gaskets (Cat 3)"] = Material.query.get(cp.get("material_gaskets"))
+    if cp.get("material_corner_keys"):
+        material_order_map["Corner Keys (Cat 4)"] = Material.query.get(cp.get("material_corner_keys"))
+    if cp.get("material_dual_lock"):
+        material_order_map["Dual Lock (Cat 5)"] = Material.query.get(cp.get("material_dual_lock"))
+    if cp.get("material_foam_baffle"):
+        material_order_map["Foam Baffle Top/Head (Cat 6)"] = Material.query.get(cp.get("material_foam_baffle"))
+    if cp.get("material_foam_baffle_bottom"):
+        material_order_map["Foam Baffle Bottom/Sill (Cat 6)"] = Material.query.get(
+            cp.get("material_foam_baffle_bottom"))
+    if cp.get("material_glass_protection"):
+        material_order_map["Glass Protection (Cat 7)"] = Material.query.get(cp.get("material_glass_protection"))
+    if cp.get("material_tape"):
+        material_order_map["Tape (Cat 10)"] = Material.query.get(cp.get("material_tape"))
+    if cp.get("material_screws"):
+        material_order_map["Screws (Cat 18)"] = Material.query.get(cp.get("material_screws"))
+    if cp.get("material_setting_block"):
+        material_order_map["Setting Block (Cat 16)"] = Material.query.get(cp.get("material_setting_block"))
+
+    # Now prepare the order items
+    order_items = []
+    import math
+    categories = ["Glass (Cat 15)", "Extrusions (Cat 1)", "Retainer (Cat 17)", "Glazing Spline (Cat 2)",
+                  "Gaskets (Cat 3)", "Corner Keys (Cat 4)", "Dual Lock (Cat 5)", "Foam Baffle Top/Head (Cat 6)",
+                  "Foam Baffle Bottom/Sill (Cat 6)", "Glass Protection (Cat 7)", "Tape (Cat 10)", "Screws (Cat 18)",
+                  "Setting Block (Cat 16)"]
+    for cat in categories:
+        required_amt = calc_required(cat)
+        mat_obj = material_order_map.get(cat)
+        available = mat_obj.quantity if (mat_obj and mat_obj.quantity is not None) else 0
+        delta = required_amt - available if required_amt > available else 0
+        yld = yield_mapping.get(cat, 1)
+        order_qty = math.ceil(delta / yld) if delta > 0 and yld > 0 else 0
+        yield_cost = mat_obj.yield_cost if mat_obj and mat_obj.yield_cost is not None else 0
+        order_price = order_qty * yield_cost
+        order_items.append({
+            "Category": cat,
+            "Required": required_amt,
+            "Available": available,
+            "Delta": delta,
+            "Yield": yld,
+            "Order Quantity": order_qty,
+            "Yield Cost": yield_cost,
+            "Order Price": order_price
+        })
+    total_order_price = sum(item["Order Price"] for item in order_items)
+
+    # Write the "Order" worksheet
+    ws_order.write("A2", "Category")
+    ws_order.write("B2", "Required")
+    ws_order.write("C2", "Available")
+    ws_order.write("D2", "Delta")
+    ws_order.write("E2", "Yield")
+    ws_order.write("F2", "Order Quantity")
+    ws_order.write("G2", "Yield Cost")
+    ws_order.write("H2", "Order Price")
+    row_order = 3
+    for item in order_items:
+        ws_order.write(row_order, 0, item["Category"])
+        ws_order.write(row_order, 1, item["Required"])
+        ws_order.write(row_order, 2, item["Available"])
+        ws_order.write(row_order, 3, item["Delta"])
+        ws_order.write(row_order, 4, item["Yield"])
+        ws_order.write(row_order, 5, item["Order Quantity"])
+        ws_order.write(row_order, 6, item["Yield Cost"])
+        ws_order.write(row_order, 7, item["Order Price"])
+        row_order += 1
+    ws_order.write(row_order, 0, "Total Order Price:")
+    ws_order.write(row_order, 1, total_order_price)
 
     writer.close()
     output.seek(0)
